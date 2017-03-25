@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
         input = fopen(argv[1], "r");
         if (input == NULL) {
             printf("error: can't open file \"%s\"\n", argv[1]);
-            return 1;
+            exit(1);
         }
         mode = BATCH;
     } else {
@@ -51,7 +51,7 @@ int main(int argc, char *argv[])
     char *cmd;              /* current command */
     
     while (PromptFgets(mode, line, MAXLINESIZE, input) != NULL 
-                                && strstr(line, "quit") == NULL) {
+                               && strstr(line, "quit") == NULL) {
 
         const char *delimiter = ";";
         int child_pids[MAXCHILD], child_count = 0;
