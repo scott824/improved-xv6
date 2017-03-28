@@ -27,9 +27,9 @@ int  IsSpace(char c);
 
 int main(int argc, char *argv[])
 {
-    Mode mode;          /* input mode (interactive:batch) */
-    Process process;    /* process type (parent:child) */
-    FILE *input;        /* input stream */
+    Mode mode;                 /* input mode (interactive:batch) */
+    Process process = PARENT;  /* process type (parent:child) */
+    FILE *input;               /* input stream */
 
     /* configure interactive mode */
     if (argc == 1) {
@@ -80,9 +80,7 @@ int main(int argc, char *argv[])
                     exit(1);
                 } else if (current_pid == 0) {
                     process = CHILD;
-                    goto child; /* exit double loop and goto child code block */
-                } else {
-                    process = PARENT;
+                    goto child; // exit double loop and goto child code block
                 }
             } 
             /* if command is quit */
@@ -176,6 +174,7 @@ void RemoveReturn(char *str)
  *  Trim: Trim the string
  *      @param[in]      str -> string that should be trimmed
  *      @return         return the string address which is trimmed
+ *      caution:        if str is NULL, then this function will return NULL
  */
 char *Trim(char *str)
 {
