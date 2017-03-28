@@ -23,12 +23,12 @@ char *PromptFgets(Mode mode, char *line, int size, FILE *input);
 void Split(char *arr[], char *str, const char *delimiter);
 void RemoveReturn(char *str);
 char *Trim(char *str);
-int IsSpace(char c);
+int  IsSpace(char c);
 
 int main(int argc, char *argv[])
 {
-    Mode mode;          /* input mode */
-    Process process;    /* process type */
+    Mode mode;          /* input mode (interactive:batch) */
+    Process process;    /* process type (parent:child) */
     FILE *input;        /* input stream */
 
     /* configure interactive mode */
@@ -44,6 +44,7 @@ int main(int argc, char *argv[])
             exit(1);
         }
         mode = BATCH;
+    /* return, if it has more than 1 argument */
     } else {
         printf("usage: ./shell [file]\n");
         return 1;
@@ -52,6 +53,7 @@ int main(int argc, char *argv[])
     char line[MAXLINESIZE]; /* current input line */
     char *cmd;              /* current command */
     
+    /** main loop for a parent **/
     while (PromptFgets(mode, line, MAXLINESIZE, input) != NULL) {
 
         const char *delimiter = ";";
@@ -59,39 +61,50 @@ int main(int argc, char *argv[])
         char *cmds[MAXCMDS];
         int i, quit = 0;
 
+        /* split the line and save it to cmds */
         Split(cmds, line, delimiter);
 
-        /* make child process */
+        /* make child processes */
         for (i = 0; cmds[i] != NULL; i++) {
-            cmd = Trim(cmds[i]);
+
+            cmd = cmds[i];
+
+            /* if command is not quit */
             if (strcmp(cmd, "quit") != 0) {
+
+                /* create new process */
                 int current_pid = child_pids[child_count++] = fork();
+
                 if (current_pid < 0) {
                     fprintf(stderr, "fork failed\n");
                     exit(1);
                 } else if (current_pid == 0) {
                     process = CHILD;
-                    goto child;
+                    goto child; /* exit double loop and goto child code block */
                 } else {
                     process = PARENT;
                 }
-            } else {
+            } 
+            /* if command is quit */
+            else {
                 quit = 1;
             }
         }
 
-        /* wait for child process */
+        /* wait for all child processes */
         int status;
         for(i = 0; i < child_count; i++) {
             waitpid(child_pids[i], &status, 0);
             // TODO: error handler needed
         }
 
-        /* if get quit command */
-        if (quit)
+        /* if get quit command, stop accepting new commands */
+        if (quit) {
             break;
+        }
     }
 
+    /** block for childs **/
     child: if (process == CHILD) {
         const char *delimiter = " ";
         char *args[MAXARGS];
@@ -142,7 +155,7 @@ void Split(char *arr[], char *str, const char *delimiter)
     int i;
     char *token = strtok(str, delimiter);
     for (i = 0; token != NULL; i++) {
-        arr[i] = token;
+        arr[i] = Trim(token);
         token = strtok(NULL, delimiter);
     }
     arr[i] = NULL;
@@ -169,6 +182,9 @@ char *Trim(char *str)
     int i;
     char *start;
 
+    if (str == NULL) {
+        return str;
+    }
     for (i = 0; i < strlen(str); i++) {
         if (!IsSpace(str[i])) {
             break;
