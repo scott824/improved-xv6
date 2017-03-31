@@ -39,7 +39,7 @@ trap(struct trapframe *tf)
 {
   if(tf->trapno == 128){
     cprintf("user interrupt 128 called!\n");
-    exit();
+    return;
   }
 
   if(tf->trapno == T_SYSCALL){
