@@ -31,3 +31,7 @@ SYSCALL(sleep)
 SYSCALL(uptime)
 SYSCALL(my_syscall)
 SYSCALL(getppid)
+
+SYSCALL(yield)
+SYSCALL(getlev)
+SYSCALL(set_cpu_share)

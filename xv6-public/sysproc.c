@@ -89,3 +89,18 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// wrapper function for yield system call
+int
+sys_yield(void)
+{
+    yield();
+    return 0;
+}
+
+// function for getlev system call
+int
+sys_getlev(void)
+{
+    return proc->level;
+}

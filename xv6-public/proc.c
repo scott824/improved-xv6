@@ -7,6 +7,8 @@
 #include "proc.h"
 #include "spinlock.h"
 
+const int quantum[3] = {5, 10, 20};
+
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -47,6 +49,13 @@ allocproc(void)
   return 0;
 
 found:
+  /* Initalize priority level to 2 */
+#if LOG == TRUE
+  cprintf("LOG: Initialize level, usedticks\n");
+#endif
+  p->level = 0;
+  p->usedticks = 0;
+
   p->state = EMBRYO;
   p->pid = nextpid++;
 
@@ -297,6 +306,9 @@ scheduler(void)
       proc = p;
       switchuvm(p);
       p->state = RUNNING;
+#if LOG == TRUE
+      cprintf("LOG: swtch to %d %s process\n", p->pid, p->name);
+#endif
       swtch(&cpu->scheduler, p->context);
       switchkvm();
 
@@ -338,8 +350,12 @@ sched(void)
 void
 yield(void)
 {
+#if LOG == TRUE
+  cprintf("YIELD: %d %s, use %d ticks.\n", proc->pid, proc->name, proc->usedticks);
+#endif
   acquire(&ptable.lock);  //DOC: yieldlock
   proc->state = RUNNABLE;
+  proc->usedticks = 0;
   sched();
   release(&ptable.lock);
 }
@@ -390,6 +406,13 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   proc->chan = chan;
   proc->state = SLEEPING;
+
+  // MLFQ - if process sleep before it's quantum end, remain in same level
+#if LOG == TRUE
+  cprintf("LOG: %d %s process sleep, usedticks=%d\n", proc->pid, proc->name, proc->usedticks);
+#endif
+  proc->usedticks = 0;
+
   sched();
 
   // Tidy up.

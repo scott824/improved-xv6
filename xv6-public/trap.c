@@ -34,6 +34,8 @@ idtinit(void)
 }
 
 //PAGEBREAK: 41
+extern const int quantum[];
+
 void
 trap(struct trapframe *tf)
 {
@@ -57,12 +59,18 @@ trap(struct trapframe *tf)
     if(cpunum() == 0){
       acquire(&tickslock);
       ticks++;
+      if (proc)
+        proc->usedticks++;    // increase ticks process used
       wakeup(&ticks);
       release(&tickslock);
     }
     lapiceoi();
     break;
   case T_IRQ0 + IRQ_IDE:
+#if LOG == TRUE
+    if(proc)
+      cprintf("LOG: %d %s process IRQ_IDE\n", proc->pid, proc->name);
+#endif
     ideintr();
     lapiceoi();
     break;
@@ -108,8 +116,18 @@ trap(struct trapframe *tf)
 
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
-  if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER)
+#if LOG == TRUE
+  if(proc)
+    cprintf("LOG: %d %s -> usedticks=%d, quantum[%d]=%d\n", 
+            proc->pid, proc->name, proc->usedticks, proc->level, quantum[proc->level]);
+#endif
+  /* MLFQ -> yield only if it used all of it's quantum */
+  if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER
+          && proc->usedticks >= quantum[proc->level]){
+    if(proc->level < 2)
+      proc->level++;
     yield();
+  }
 
   // Check if the process has been killed since we yielded
   if(proc && proc->killed && (tf->cs&3) == DPL_USER)

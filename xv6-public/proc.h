@@ -48,6 +48,9 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// ticks of quantum each level will use
+const int quantum[3]; 
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -63,6 +66,10 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  /* Info for MLFQ */
+  int level;                   // Priority Queue Level(0, 1, 2)
+  int usedticks;               // ticks it used in this quantum
 };
 
 // Process memory is laid out contiguously, low addresses first:

@@ -26,6 +26,13 @@ int uptime(void);
 int my_syscall(char*);
 int getppid(void);
 
+/* MLFQ */
+int yield(void);
+int getlev(void);
+
+/* Stride */
+int set_cpu_share(int);
+
 // ulib.c
 int stat(char*, struct stat*);
 char* strcpy(char*, char*);
