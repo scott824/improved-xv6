@@ -289,15 +289,21 @@ void
 scheduler(void)
 {
   struct proc *p;
+  int currentqueue = 0;
+  int runnable_proc_in_queue;
 
   for(;;){
     // Enable interrupts on this processor.
     sti();
 
+    runnable_proc_in_queue = FALSE;
+
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
+        continue;
+      if(p->level != currentqueue)
         continue;
 
       // Switch to chosen process.  It is the process's job
@@ -312,13 +318,38 @@ scheduler(void)
       swtch(&cpu->scheduler, p->context);
       switchkvm();
 
+      currentqueue = 0;
+      runnable_proc_in_queue = TRUE;
+
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       proc = 0;
     }
+    if(runnable_proc_in_queue == FALSE){
+      currentqueue++;
+    }
+    if(currentqueue > 2)
+      currentqueue = 0;
+#if LOG == TRUE
+    //cprintf("LOG: queue changed to %d\n", currentqueue);
+#endif
+    
     release(&ptable.lock);
 
   }
+}
+
+void
+boost(void)
+{
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    p->level = 0;
+    p->usedticks = 0;
+  }
+#if LOG == TRUE
+  cprintf("LOG: Boost!!!\n");
+#endif
 }
 
 // Enter scheduler.  Must hold only ptable.lock
@@ -355,6 +386,7 @@ yield(void)
 #endif
   acquire(&ptable.lock);  //DOC: yieldlock
   proc->state = RUNNABLE;
+  // remain level when process yield by itself
   proc->usedticks = 0;
   sched();
   release(&ptable.lock);

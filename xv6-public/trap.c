@@ -59,6 +59,8 @@ trap(struct trapframe *tf)
     if(cpunum() == 0){
       acquire(&tickslock);
       ticks++;
+      if(ticks % 100 == 0)
+        boost();
       if (proc)
         proc->usedticks++;    // increase ticks process used
       wakeup(&ticks);
