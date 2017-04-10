@@ -329,6 +329,8 @@ scheduler(void)
     for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE || p->level != currentqueue)
         continue;
+      if(p->level != currentqueue)
+        continue;
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -357,9 +359,7 @@ scheduler(void)
 #if LOG == TRUE
     //cprintf("LOG: queue changed to %d\n", currentqueue);
 #endif
-    
     release(&current->ptable.lock);
-
   }
 }
 
