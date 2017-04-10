@@ -106,7 +106,7 @@ extern int sys_yield(void);
 extern int sys_getlev(void);
 
 /* Stride */
-//extern int sys_set_cpu_share(void);
+extern int sys_set_cpu_share(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]        sys_fork,
@@ -138,7 +138,7 @@ static int (*syscalls[])(void) = {
 [SYS_getlev]      sys_getlev,
 
 /* Stride */
-//[SYS_set_cpu_share] sys_set_cpu_share,
+[SYS_set_cpu_share] sys_set_cpu_share,
 };
 
 void

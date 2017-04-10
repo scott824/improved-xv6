@@ -94,13 +94,23 @@ sys_uptime(void)
 int
 sys_yield(void)
 {
-    yield();
-    return 0;
+  yield();
+  return 0;
 }
 
 // function for getlev system call
 int
 sys_getlev(void)
 {
-    return proc->level;
+  return proc->level;
+}
+
+// wrapper function for set_cpu_share system call
+int
+sys_set_cpu_share(void)
+{
+  int percent;
+  if(argint(0, &percent) < 0)
+    return -1;
+  return set_cpu_share(percent);
 }
