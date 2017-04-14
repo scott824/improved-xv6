@@ -7,13 +7,13 @@
 #include "proc.h"
 #include "spinlock.h"
 
-const int quantum[3] = {5, 10, 20};
+const int quantum[NUMLEVEL] = {5, 10, 20};
 
 // Process table for MLFQ
 struct processtable {
   struct spinlock lock;
   struct proc proc[NPROC];
-} ptable;
+};
 
 // Stride Process
 struct strideproc {
@@ -25,7 +25,10 @@ struct strideproc {
 };
 
 // Process table for Stride
-struct strideproc stridetable[NPROC];
+struct {
+    struct spinlock lock;
+    struct strideproc strideproc[NPROC];
+} stridetable;
 
 static struct proc *initproc;
 static struct strideproc *MLFQ;
@@ -40,15 +43,24 @@ static void wakeup1(void *chan);
 void
 pinit(void)
 {
-  stridetable[0].tickets = 100;
-  stridetable[0].stride = 100 / stridetable[0].tickets;
-  stridetable[0].pass = 0;
-  MLFQ = stridetable;
-  current = MLFQ;
+  initlock(&stridetable.lock, "stridetable");
+
+  acquire(&stridetable.lock);
 
   struct strideproc *p;
-  for(p = stridetable; p < &stridetable[NPROC]; p++)
+  for(p = stridetable.strideproc; p < &stridetable.strideproc[NPROC]; p++){
     initlock(&p->ptable.lock, "ptable");
+    initlock(&p->lock, "strideproc");
+  }
+
+  stridetable.strideproc->tickets = ENTIRETICKETS;
+  stridetable.strideproc->stride = ENTIRETICKETS / stridetable.strideproc->tickets;
+  stridetable.strideproc->pass = 0;
+
+  MLFQ = stridetable.strideproc;
+  current = MLFQ;
+
+  release(&stridetable.lock);
 #if LOG == TRUE
   cprintf("LOG: MLFQ's tickets = %d\n", MLFQ->tickets);
 #endif
@@ -314,6 +326,13 @@ wait(void)
 void
 scheduler(void)
 {
+    for(;;)
+      MLFQ_scheduler();
+}
+
+void
+MLFQ_scheduler(void)
+{
   struct proc *p;
   int currentqueue = 0;
   int runnable_proc_in_queue;
@@ -328,8 +347,6 @@ scheduler(void)
     acquire(&current->ptable.lock);
     for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE || p->level != currentqueue)
-        continue;
-      if(p->level != currentqueue)
         continue;
 
       // Switch to chosen process.  It is the process's job
@@ -354,7 +371,7 @@ scheduler(void)
     if(runnable_proc_in_queue == FALSE){
       currentqueue++;
     }
-    if(currentqueue > 2)
+    if(currentqueue >= NUMLEVEL)
       currentqueue = 0;
 #if LOG == TRUE
     //cprintf("LOG: queue changed to %d\n", currentqueue);
