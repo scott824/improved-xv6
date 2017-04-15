@@ -121,6 +121,7 @@ void            yield(void);
 void            boost(void);
 int             set_cpu_share(int);
 int             removeProcPtr(struct proc *p);
+int             getminpass(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

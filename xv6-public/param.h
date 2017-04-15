@@ -14,7 +14,8 @@
 
 #define ENTIRETICKETS 100   // entire tickets for stride scheduler
 #define NUMLEVEL      3
+#define MAXINT        2147483647
 
-#define LOG          1
+#define LOG          0
 #define TRUE         1
 #define FALSE        0

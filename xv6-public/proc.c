@@ -292,6 +292,9 @@ exit(void)
     }
   }
 
+#if LOG == TRUE
+  cprintf("LOG: Exit from %d %s\n", proc->pid, proc->name);
+#endif
   // Jump into the scheduler, never to return.
   proc->state = ZOMBIE;
   sched();
@@ -315,6 +318,9 @@ wait(void)
         continue;
       havekids = 1;
       if(p->state == ZOMBIE){
+#if LOG == TRUE
+        cprintf("LOG: remove ZOMBIE process %d %s\n", p->pid, p->name);
+#endif
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
@@ -360,7 +366,7 @@ scheduler(void)
       sti();
       acquire(&ptable.lock);
       // find stride proc which has the smallest pass
-      minpass = 2147483647;
+      minpass = MAXINT;
       minpindex = 0;
       for(i = 0; i < NPROC; i++){
         if(stridetable.strideproc[i].sid)
@@ -375,8 +381,25 @@ scheduler(void)
       // change current stride proc;
       current = &stridetable.strideproc[minpindex];
 
-      // start MLFQ scheduler of current stride
-      MLFQ_scheduler2();
+      // check is it empty stride proc
+      for(i = 0; i < NPROC; i++)
+        if(current->pptable.proc[i] != 0)
+          break;
+      if(i == NPROC){
+#if LOG == TRUE
+        cprintf("LOG: Remove empty stride proc %d\n", current->sid);
+#endif
+        MLFQ->tickets += current->tickets;
+        MLFQ->stride = ENTIRETICKETS / MLFQ->tickets;
+        current->tickets = 0;
+        current->stride = 0;
+        current->pass = 0;
+        current->usedticks = 0;
+        current->sid = 0;
+      }else{
+        // start MLFQ scheduler of current stride
+        MLFQ_scheduler2();
+      }
       release(&ptable.lock);
     }
 }
@@ -391,11 +414,11 @@ MLFQ_scheduler2(void)
   struct proc *p = ppArr[currentproc];
 
   // if proc doesn't use his quantum yet -> run again
-  if(p->state == RUNNABLE && p->usedticks < quantum[p->level]){
+  if(p && p->state == RUNNABLE && p->usedticks < quantum[p->level]){
     goto found;
   }
   // if proc use all of his quantum
-  if(p->usedticks >= quantum[p->level]){
+  if(p && p->usedticks >= quantum[p->level]){
 #if LOG == TRUE
     cprintf("LOG: %d %s proc use all its quantum, level: %d\n", p->pid, p->name, p->level);
 #endif
@@ -423,6 +446,10 @@ MLFQ_scheduler2(void)
   }
 
   // return if there is no proc to run
+#if LOG == TRUE
+  //cprintf("LOG: NO process to run in %d stride proc\n", current->sid);
+#endif
+  current->pass++;
   return;
 
 found:
@@ -574,7 +601,48 @@ set_cpu_share(int percent)
 #if LOG == TRUE
   cprintf("LOG: %d %s set_cpu_share %d%\n", proc->pid, proc->name, percent);
 #endif
+  // check MLFQ will less than 20%
+  if(MLFQ->tickets - percent < 20){
+    cprintf("ERROR: MLFQ should get more than 20%% of CPU\n");
+    return 1;
+  }
+  // check is there room for new stride proc
+  struct strideproc *p;
+  for(p = stridetable.strideproc; p < &stridetable.strideproc[NPROC]; p++)
+    if(p->sid == 0)
+      goto found;
+  cprintf("ERROR: There is no more room for new stride proc\n");
+  return 1;
+
+found:
+  // init new stride proc
+  acquire(&ptable.lock);
+  p->tickets = percent;
+  p->stride = ENTIRETICKETS / percent;
+  p->pass = getminpass();
+  p->usedticks = 0;
+  p->sid = nextsid++;
+  p->pptable.proc[0] = proc;
+  current->pptable.proc[current->currentproc] = 0;
+
+  MLFQ->tickets -= percent;
+  MLFQ->stride = ENTIRETICKETS / MLFQ->tickets;
+  release(&ptable.lock);
+
   return 0;
+}
+
+int
+getminpass(void)
+{
+  int i, minpass = MAXINT;
+  for(i = 0; i < NPROC; i++){
+    if(stridetable.strideproc[i].sid)
+    if(minpass > stridetable.strideproc[i].pass){
+      minpass = stridetable.strideproc[i].pass;
+    }
+  }
+  return minpass;
 }
 
 // A fork child's very first scheduling by scheduler()
