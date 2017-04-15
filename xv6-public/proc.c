@@ -371,10 +371,21 @@ MLFQ_scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+    /*
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE || p->level != currentqueue)
         continue;
+    */
+    int i;
+    for(i = 0; i < NPROC; i++){
+      struct proc **ppArr = current->pptable.proc;
+      if(!ppArr[i] || ppArr[i]->state != RUNNABLE || ppArr[i]->level != currentqueue)
+        continue;
 
+      p = ppArr[i];
+#if LOG == TRUE
+      cprintf("LOG: find proc pointer to schedule - %d %s\n", p->pid, p->name);
+#endif
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
       // before jumping back to us.
@@ -386,6 +397,9 @@ MLFQ_scheduler(void)
 #endif
       swtch(&cpu->scheduler, p->context);
       switchkvm();
+#if LOG == TRUE
+      cprintf("LOG: scheduler enter\n");
+#endif
 
       currentqueue = 0;
       runnable_proc_in_queue = TRUE;
