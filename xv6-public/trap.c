@@ -59,13 +59,6 @@ trap(struct trapframe *tf)
     if(cpunum() == 0){
       acquire(&tickslock);
       ticks++;
-
-      // TODO: have to save usedtick for strideproc, than boost.
-      if(ticks % 100 == 0)
-        boost();
-      // TODO: have to add in sched().
-      if (proc)
-        proc->usedticks++;    // increase ticks process used
       wakeup(&ticks);
       release(&tickslock);
     }
@@ -123,17 +116,14 @@ trap(struct trapframe *tf)
   // If interrupts were on while locks held, would need to check nlock.
 #if LOG == TRUE
   if(proc)
-    cprintf("LOG: %d %s -> usedticks=%d, quantum[%d]=%d\n", 
-            proc->pid, proc->name, proc->usedticks, proc->level, quantum[proc->level]);
+    //cprintf("LOG: %d %s -> usedticks=%d, quantum[%d]=%d\n", 
+    //        proc->pid, proc->name, proc->usedticks, proc->level, quantum[proc->level]);
 #endif
   /* MLFQ -> yield only if it used all of it's quantum */
   // TODO: move examine, level change code to mlfq_scheduler
   // also have to check proc is RUNNABLE and if it's not, change
   // to another process in mlfq
-  if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER
-          && proc->usedticks >= quantum[proc->level]){
-    if(proc->level < 2)
-      proc->level++;
+  if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER){
     yield();
   }
 

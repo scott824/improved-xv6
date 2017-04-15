@@ -29,7 +29,8 @@ struct strideproc {
   int stride;
   int pass;
   int usedticks;
-  struct proc **proc;
+  int sid;
+  int currentproc;
 };
 
 // Process table for Stride
@@ -43,6 +44,7 @@ static struct strideproc *MLFQ;
 static struct strideproc *current;
 
 int nextpid = 1;
+int nextsid = 1;
 extern void forkret(void);
 extern void trapret(void);
 
@@ -66,6 +68,7 @@ pinit(void)
   stridetable.strideproc->stride = ENTIRETICKETS / stridetable.strideproc->tickets;
   stridetable.strideproc->pass = 0;
   stridetable.strideproc->usedticks = 0;
+  stridetable.strideproc->sid = nextsid++;
 
   // first stride proc is MLFQ
   MLFQ = stridetable.strideproc;
@@ -352,8 +355,86 @@ wait(void)
 void
 scheduler(void)
 {
-    for(;;)
-      MLFQ_scheduler();
+    int i, minpass, minpindex;
+    for(;;){
+      sti();
+      acquire(&ptable.lock);
+      // find stride proc which has the smallest pass
+      minpass = 2147483647;
+      minpindex = 0;
+      for(i = 0; i < NPROC; i++){
+        if(stridetable.strideproc[i].sid)
+        if(minpass > stridetable.strideproc[i].pass){
+          minpass = stridetable.strideproc[i].pass;
+          minpindex = i;
+        }
+      }
+#if LOG == TRUE
+      //cprintf("LOG: found min pass stride index %d\n", minpindex);
+#endif
+      // change current stride proc;
+      current = &stridetable.strideproc[minpindex];
+
+      // start MLFQ scheduler of current stride
+      MLFQ_scheduler2();
+      release(&ptable.lock);
+    }
+}
+
+void
+MLFQ_scheduler2(void)
+{
+  int i;
+  int currentqueue = 0, currentproc = current->currentproc;
+  int firstloop = TRUE;
+  struct proc **ppArr = current->pptable.proc;
+  struct proc *p = ppArr[currentproc];
+
+  // if proc doesn't use his quantum yet -> run again
+  if(p->state == RUNNABLE && p->usedticks < quantum[p->level]){
+    goto found;
+  }
+  // if proc use all of his quantum
+  if(p->usedticks >= quantum[p->level]){
+#if LOG == TRUE
+    cprintf("LOG: %d %s proc use all its quantum, level: %d\n", p->pid, p->name, p->level);
+#endif
+    if(p->level < 2)
+      p->level++;
+    p->usedticks = 0;
+  }
+
+  // find another proc to run
+  while(currentqueue < 3){
+    for(i = currentproc + 1; i < NPROC; i++){
+      if(!ppArr[i] || ppArr[i]->state != RUNNABLE || ppArr[i]->level != currentqueue)
+        continue;
+      else{
+        current->currentproc = i;
+        p = ppArr[i];
+        goto found;
+      }
+    }
+    if(firstloop){
+      firstloop = FALSE;
+      currentproc = -1;
+    } else
+      currentqueue++;
+  }
+
+  // return if there is no proc to run
+  return;
+
+found:
+#if LOG == TRUE
+  //cprintf("LOG: swtch to %d %s\n", p->pid, p->name);
+#endif
+  proc = p;
+  switchuvm(p);
+  p->state = RUNNING;
+  swtch(&cpu->scheduler, p->context);
+  switchkvm();
+  proc = 0;
 }
 
 void
@@ -455,6 +536,19 @@ sched(void)
     panic("sched running");
   if(readeflags()&FL_IF)
     panic("sched interruptible");
+
+  // increase ticks process used
+  proc->usedticks++;
+  current->usedticks++;
+  // increase pass
+  current->pass += current->stride;
+
+  // Boost if current MLFQ use 100ticks
+  if(current->usedticks >= 100){
+    boost();
+    current->usedticks = 0;
+  }
+
   intena = cpu->intena;
   swtch(&proc->context, cpu->scheduler);
   cpu->intena = intena;
@@ -465,12 +559,10 @@ void
 yield(void)
 {
 #if LOG == TRUE
-  cprintf("YIELD: %d %s, use %d ticks.\n", proc->pid, proc->name, proc->usedticks);
+  //cprintf("YIELD: %d %s, use %d ticks.\n", proc->pid, proc->name, proc->usedticks);
 #endif
   acquire(&ptable.lock);  //DOC: yieldlock
   proc->state = RUNNABLE;
-  // remain level when process yield by itself
-  proc->usedticks = 0;
   sched();
   release(&ptable.lock);
 }
@@ -532,11 +624,9 @@ sleep(void *chan, struct spinlock *lk)
   proc->chan = chan;
   proc->state = SLEEPING;
 
-  // MLFQ - if process sleep before it's quantum end, remain in same level
 #if LOG == TRUE
   cprintf("LOG: %d %s process sleep, usedticks=%d\n", proc->pid, proc->name, proc->usedticks);
 #endif
-  proc->usedticks = 0;
 
   sched();
 

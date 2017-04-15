@@ -10,7 +10,7 @@
 
 char *child_argv[3][3] = {
     {NAME_CHILD_MLFQ, "0", 0},
-    {NAME_CHILD_MLFQ, "1", 0},
+    {NAME_CHILD_MLFQ, "0", 0},
     {NAME_CHILD_MLFQ, "0", 0}
 };
 
