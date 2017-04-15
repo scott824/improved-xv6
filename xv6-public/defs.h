@@ -119,6 +119,7 @@ void            wakeup(void*);
 void            yield(void);
 void            boost(void);
 int             set_cpu_share(int);
+int             removeProcPtr(struct proc *p);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

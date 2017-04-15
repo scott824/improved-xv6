@@ -9,19 +9,27 @@
 
 const int quantum[NUMLEVEL] = {5, 10, 20};
 
-// Process table for MLFQ
-struct processtable {
+// Process table which will save all the processes
+struct {
   struct spinlock lock;
   struct proc proc[NPROC];
+} ptable;
+
+// Process pointer table for MLFQ
+struct pptrtable {
+  struct spinlock lock;
+  struct proc *proc[NPROC];
 };
 
 // Stride Process
 struct strideproc {
   struct spinlock lock;
-  struct processtable ptable;
+  struct pptrtable pptable;
   int tickets;
   int stride;
   int pass;
+  int usedticks;
+  struct proc **proc;
 };
 
 // Process table for Stride
@@ -49,14 +57,17 @@ pinit(void)
 
   struct strideproc *p;
   for(p = stridetable.strideproc; p < &stridetable.strideproc[NPROC]; p++){
-    initlock(&p->ptable.lock, "ptable");
+    initlock(&p->pptable.lock, "pptable");
     initlock(&p->lock, "strideproc");
   }
 
+  // init first stride proc (MLFQ)
   stridetable.strideproc->tickets = ENTIRETICKETS;
   stridetable.strideproc->stride = ENTIRETICKETS / stridetable.strideproc->tickets;
   stridetable.strideproc->pass = 0;
+  stridetable.strideproc->usedticks = 0;
 
+  // first stride proc is MLFQ
   MLFQ = stridetable.strideproc;
   current = MLFQ;
 
@@ -77,27 +88,39 @@ allocproc(void)
   struct proc *p;
   char *sp;
 
-  acquire(&current->ptable.lock);
+  acquire(&ptable.lock);
 
-  for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++)
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == UNUSED)
       goto found;
 
-  release(&current->ptable.lock);
+  release(&ptable.lock);
   return 0;
 
 found:
-  /* Initalize priority level to 2 */
+  acquire(&current->pptable.lock);
+  // save proc pointer in stride proc pptable
+  int i;
+  for(i = 0; i < NPROC; i++)
+    if(!current->pptable.proc[i]){
+      current->pptable.proc[i] = p;
+#if LOG == TRUE
+      cprintf("LOG: save proc (%p)pointer in current pptable\n", (int)current->pptable.proc[i]);
+#endif
+      break;
+    }
+  release(&current->pptable.lock);
 #if LOG == TRUE
   cprintf("LOG: Initialize level, usedticks\n");
 #endif
+  // init proc properties for MLFQ
   p->level = 0;
   p->usedticks = 0;
 
   p->state = EMBRYO;
   p->pid = nextpid++;
 
-  release(&current->ptable.lock);
+  release(&ptable.lock);
 
   // Allocate kernel stack.
   if((p->kstack = kalloc()) == 0){
@@ -154,11 +177,11 @@ userinit(void)
   // run this process. the acquire forces the above
   // writes to be visible, and the lock is also needed
   // because the assignment might not be atomic.
-  acquire(&current->ptable.lock);
+  acquire(&ptable.lock);
 
   p->state = RUNNABLE;
 
-  release(&current->ptable.lock);
+  release(&ptable.lock);
 }
 
 // Grow current process's memory by n bytes.
@@ -218,11 +241,11 @@ fork(void)
 
   pid = np->pid;
 
-  acquire(&current->ptable.lock);
+  acquire(&ptable.lock);
 
   np->state = RUNNABLE;
 
-  release(&current->ptable.lock);
+  release(&ptable.lock);
 
   return pid;
 }
@@ -252,13 +275,13 @@ exit(void)
   end_op();
   proc->cwd = 0;
 
-  acquire(&current->ptable.lock);
+  acquire(&ptable.lock);
 
   // Parent might be sleeping in wait().
   wakeup1(proc->parent);
 
   // Pass abandoned children to init.
-  for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
       p->parent = initproc;
       if(p->state == ZOMBIE)
@@ -280,11 +303,11 @@ wait(void)
   struct proc *p;
   int havekids, pid;
 
-  acquire(&current->ptable.lock);
+  acquire(&ptable.lock);
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->parent != proc)
         continue;
       havekids = 1;
@@ -299,19 +322,22 @@ wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
-        release(&current->ptable.lock);
+        release(&ptable.lock);
+
+        // remove all the pointer of this proc
+        removeProcPtr(p);
         return pid;
       }
     }
 
     // No point waiting if we don't have any children.
     if(!havekids || proc->killed){
-      release(&current->ptable.lock);
+      release(&ptable.lock);
       return -1;
     }
 
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
-    sleep(proc, &current->ptable.lock);  //DOC: wait-sleep
+    sleep(proc, &ptable.lock);  //DOC: wait-sleep
   }
 }
 
@@ -344,8 +370,8 @@ MLFQ_scheduler(void)
     runnable_proc_in_queue = FALSE;
 
     // Loop over process table looking for process to run.
-    acquire(&current->ptable.lock);
-    for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
+    acquire(&ptable.lock);
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE || p->level != currentqueue)
         continue;
 
@@ -376,21 +402,23 @@ MLFQ_scheduler(void)
 #if LOG == TRUE
     //cprintf("LOG: queue changed to %d\n", currentqueue);
 #endif
-    release(&current->ptable.lock);
+    release(&ptable.lock);
   }
 }
 
 void
 boost(void)
 {
-  struct proc *p;
-  for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
-    p->level = 0;
-    p->usedticks = 0;
-  }
 #if LOG == TRUE
   cprintf("LOG: Boost!!!\n");
 #endif
+  int i;
+  for(i = 0; i < NPROC; i++){
+    if(current->pptable.proc[i]){
+      current->pptable.proc[i]->level = 0;
+      current->pptable.proc[i]->usedticks = 0;
+    }
+  }
 }
 
 // Enter scheduler.  Must hold only ptable.lock
@@ -405,7 +433,7 @@ sched(void)
 {
   int intena;
 
-  if(!holding(&current->ptable.lock))
+  if(!holding(&ptable.lock))
     panic("sched ptable.lock");
   if(cpu->ncli != 1)
     panic("sched locks");
@@ -425,12 +453,12 @@ yield(void)
 #if LOG == TRUE
   cprintf("YIELD: %d %s, use %d ticks.\n", proc->pid, proc->name, proc->usedticks);
 #endif
-  acquire(&current->ptable.lock);  //DOC: yieldlock
+  acquire(&ptable.lock);  //DOC: yieldlock
   proc->state = RUNNABLE;
   // remain level when process yield by itself
   proc->usedticks = 0;
   sched();
-  release(&current->ptable.lock);
+  release(&ptable.lock);
 }
 
 // Move process to Stride scheduler
@@ -450,7 +478,7 @@ forkret(void)
 {
   static int first = 1;
   // Still holding ptable.lock from scheduler.
-  release(&current->ptable.lock);
+  release(&ptable.lock);
 
   if (first) {
     // Some initialization functions must be run in the context
@@ -481,8 +509,8 @@ sleep(void *chan, struct spinlock *lk)
   // guaranteed that we won't miss any wakeup
   // (wakeup runs with ptable.lock locked),
   // so it's okay to release lk.
-  if(lk != &current->ptable.lock){  //DOC: sleeplock0
-    acquire(&current->ptable.lock);  //DOC: sleeplock1
+  if(lk != &ptable.lock){  //DOC: sleeplock0
+    acquire(&ptable.lock);  //DOC: sleeplock1
     release(lk);
   }
 
@@ -502,8 +530,8 @@ sleep(void *chan, struct spinlock *lk)
   proc->chan = 0;
 
   // Reacquire original lock.
-  if(lk != &current->ptable.lock){  //DOC: sleeplock2
-    release(&current->ptable.lock);
+  if(lk != &ptable.lock){  //DOC: sleeplock2
+    release(&ptable.lock);
     acquire(lk);
   }
 }
@@ -516,7 +544,7 @@ wakeup1(void *chan)
 {
   struct proc *p;
 
-  for(p = current->ptable.proc; p < &MLFQ->ptable.proc[NPROC]; p++)
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->state == SLEEPING && p->chan == chan)
       p->state = RUNNABLE;
 }
@@ -525,9 +553,9 @@ wakeup1(void *chan)
 void
 wakeup(void *chan)
 {
-  acquire(&current->ptable.lock);
+  acquire(&ptable.lock);
   wakeup1(chan);
-  release(&current->ptable.lock);
+  release(&ptable.lock);
 }
 
 // Kill the process with the given pid.
@@ -538,18 +566,18 @@ kill(int pid)
 {
   struct proc *p;
 
-  acquire(&current->ptable.lock);
-  for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
       p->killed = 1;
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;
-      release(&current->ptable.lock);
+      release(&ptable.lock);
       return 0;
     }
   }
-  release(&current->ptable.lock);
+  release(&ptable.lock);
   return -1;
 }
 
@@ -573,7 +601,7 @@ procdump(void)
   char *state;
   uint pc[10];
 
-  for(p = current->ptable.proc; p < &current->ptable.proc[NPROC]; p++){
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
@@ -588,4 +616,25 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int
+removeProcPtr(struct proc *p)
+{
+  struct strideproc *sp;
+  int i, find = 0;
+
+  acquire(&stridetable.lock);
+  for(sp = stridetable.strideproc; sp < &stridetable.strideproc[NPROC]; sp++)
+    for(i = 0; i < NPROC; i++)
+      if(sp->pptable.proc[i] == p){
+        sp->pptable.proc[i] = 0;
+        find = 1;
+      }
+  release(&stridetable.lock);
+  
+#if LOG == TRUE
+  cprintf("LOG: success remove process pointer!!\n");
+#endif
+  return find;
 }
