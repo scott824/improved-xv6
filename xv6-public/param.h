@@ -12,10 +12,10 @@
 #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
 #define FSSIZE       1000  // size of file system in blocks
 
-#define ENTIRETICKETS 100   // entire tickets for stride scheduler
-#define NUMLEVEL      3
-#define MAXINT        2147483647
+#define ENTIRETICKETS 100           // entire tickets for stride scheduler
+#define NUMLEVEL      3             // number of level
+#define MAXINT        2147483647    // max number of int
 
-#define LOG          0
+#define LOG          0  // on-off LOG
 #define TRUE         1
 #define FALSE        0

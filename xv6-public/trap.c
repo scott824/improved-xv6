@@ -114,15 +114,14 @@ trap(struct trapframe *tf)
 
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
+
 #if LOG == TRUE
   if(proc)
-    //cprintf("LOG: %d %s -> usedticks=%d, quantum[%d]=%d\n", 
-    //        proc->pid, proc->name, proc->usedticks, proc->level, quantum[proc->level]);
+    cprintf("LOG: %d %s -> usedticks=%d, quantum[%d]=%d\n", 
+            proc->pid, proc->name, proc->usedticks, proc->level, quantum[proc->level]);
 #endif
-  /* MLFQ -> yield only if it used all of it's quantum */
-  // TODO: move examine, level change code to mlfq_scheduler
-  // also have to check proc is RUNNABLE and if it's not, change
-  // to another process in mlfq
+
+  // yield if it's timer interrupt
   if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER){
     yield();
   }

@@ -7,44 +7,31 @@
 #include "proc.h"
 #include "spinlock.h"
 
+// ticks of quantum each level will use
 const int quantum[NUMLEVEL] = {5, 10, 20};
 
-// Process table which will save all the processes
+// 1.1 Process table which will save all the processes
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
 } ptable;
 
-// Process pointer table for MLFQ
-struct pptrtable {
-  struct spinlock lock;
-  struct proc *proc[NPROC];
-};
-
-// Stride Process
-struct strideproc {
-  struct spinlock lock;
-  struct pptrtable pptable;
-  int tickets;
-  int stride;
-  int pass;
-  int usedticks;
-  int sid;
-  int currentproc;
-};
-
-// Process table for Stride
+// 1.2 Process table for stride process
 struct {
     struct spinlock lock;
     struct strideproc strideproc[NPROC];
 } stridetable;
 
 static struct proc *initproc;
+
+// MLFQ stride proc(initial stride)
 static struct strideproc *MLFQ;
+// 2.2 current stride proc
 static struct strideproc *current;
 
 int nextpid = 1;
 int nextsid = 1;
+
 extern void forkret(void);
 extern void trapret(void);
 
@@ -358,14 +345,18 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
+
+// 2. Stride scheduler
 void
 scheduler(void)
 {
     int i, minpass, minpindex;
+
     for(;;){
       sti();
       acquire(&ptable.lock);
-      // find stride proc which has the smallest pass
+
+      // 2.1.1 find stride proc which has the smallest pass
       minpass = MAXINT;
       minpindex = 0;
       for(i = 0; i < NPROC; i++){
@@ -375,20 +366,21 @@ scheduler(void)
           minpindex = i;
         }
       }
+
 #if LOG == TRUE
-      //cprintf("LOG: found min pass stride index %d\n", minpindex);
+      cprintf("LOG: found min pass stride index %d\n", minpindex);
 #endif
-      // change current stride proc;
+
+      // 2.1.2 change current stride proc;
       current = &stridetable.strideproc[minpindex];
 
       // check is it empty stride proc
       for(i = 0; i < NPROC; i++)
         if(current->pptable.proc[i] != 0)
           break;
+
       if(i == NPROC){
-#if LOG == TRUE
-        cprintf("LOG: Remove empty stride proc %d\n", current->sid);
-#endif
+        // 2.1.3 remove stride proc
         MLFQ->tickets += current->tickets;
         MLFQ->stride = ENTIRETICKETS / MLFQ->tickets;
         current->tickets = 0;
@@ -396,16 +388,23 @@ scheduler(void)
         current->pass = 0;
         current->usedticks = 0;
         current->sid = 0;
+
+#if LOG == TRUE
+        cprintf("LOG: Remove empty stride proc %d\n", current->sid);
+#endif
+
       }else{
-        // start MLFQ scheduler of current stride
-        MLFQ_scheduler2();
+        // 2.1.4 start MLFQ scheduler of current stride
+        MLFQ_scheduler();
       }
+
       release(&ptable.lock);
     }
 }
 
+// 3. MLFQ scheduler
 void
-MLFQ_scheduler2(void)
+MLFQ_scheduler(void)
 {
   int i;
   int currentqueue = 0, currentproc = current->currentproc;
@@ -413,22 +412,25 @@ MLFQ_scheduler2(void)
   struct proc **ppArr = current->pptable.proc;
   struct proc *p = ppArr[currentproc];
 
-  // if proc doesn't use his quantum yet -> run again
+  // 3.1.1 if proc doesn't use his quantum yet -> run again
   if(p && p->state == RUNNABLE && p->usedticks < quantum[p->level]){
     goto found;
   }
-  // if proc use all of his quantum
+
+  // 3.1.2 if proc use all of his quantum
   if(p && p->usedticks >= quantum[p->level]){
+
 #if LOG == TRUE
     cprintf("LOG: %d %s proc use all its quantum, level: %d\n", p->pid, p->name, p->level);
 #endif
+
     if(p->level < 2)
       p->level++;
     p->usedticks = 0;
   }
 
-  // find another proc to run
-  while(currentqueue < 3){
+  // 3.1.3 find another proc to run
+  while(currentqueue < NUMLEVEL){
     for(i = currentproc + 1; i < NPROC; i++){
       if(!ppArr[i] || ppArr[i]->state != RUNNABLE || ppArr[i]->level != currentqueue)
         continue;
@@ -445,17 +447,21 @@ MLFQ_scheduler2(void)
       currentqueue++;
   }
 
-  // return if there is no proc to run
 #if LOG == TRUE
-  //cprintf("LOG: NO process to run in %d stride proc\n", current->sid);
+  cprintf("LOG: NO process to run in %d stride proc\n", current->sid);
 #endif
+
+  // 3.1.4 return if there is no proc to run
   current->pass++;
   return;
 
 found:
+  // 3.1.5 swtch
+
 #if LOG == TRUE
-  //cprintf("LOG: swtch to %d %s\n", p->pid, p->name);
+  cprintf("LOG: swtch to %d %s\n", p->pid, p->name);
 #endif
+
   proc = p;
   switchuvm(p);
   p->state = RUNNING;
@@ -464,76 +470,15 @@ found:
   proc = 0;
 }
 
-void
-MLFQ_scheduler(void)
-{
-  struct proc *p;
-  int currentqueue = 0;
-  int runnable_proc_in_queue;
-
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
-
-    runnable_proc_in_queue = FALSE;
-
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    /*
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE || p->level != currentqueue)
-        continue;
-    */
-    int i;
-    for(i = 0; i < NPROC; i++){
-      struct proc **ppArr = current->pptable.proc;
-      if(!ppArr[i] || ppArr[i]->state != RUNNABLE || ppArr[i]->level != currentqueue)
-        continue;
-
-      p = ppArr[i];
-#if LOG == TRUE
-      cprintf("LOG: find proc pointer to schedule - %d %s\n", p->pid, p->name);
-#endif
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-#if LOG == TRUE
-      cprintf("LOG: swtch to %d %s process\n", p->pid, p->name);
-#endif
-      swtch(&cpu->scheduler, p->context);
-      switchkvm();
-#if LOG == TRUE
-      cprintf("LOG: scheduler enter\n");
-#endif
-
-      currentqueue = 0;
-      runnable_proc_in_queue = TRUE;
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
-    }
-    if(runnable_proc_in_queue == FALSE){
-      currentqueue++;
-    }
-    if(currentqueue >= NUMLEVEL)
-      currentqueue = 0;
-#if LOG == TRUE
-    //cprintf("LOG: queue changed to %d\n", currentqueue);
-#endif
-    release(&ptable.lock);
-  }
-}
-
+// 3.2 boosting
 void
 boost(void)
 {
+
 #if LOG == TRUE
   cprintf("LOG: Boost!!!\n");
 #endif
+
   int i;
   for(i = 0; i < NPROC; i++){
     if(current->pptable.proc[i]){
@@ -564,13 +509,13 @@ sched(void)
   if(readeflags()&FL_IF)
     panic("sched interruptible");
 
-  // increase ticks process used
+  // 3.2.1-2 increase ticks process used
   proc->usedticks++;
   current->usedticks++;
-  // increase pass
+  // 3.2.3 increase pass
   current->pass += current->stride;
 
-  // Boost if current MLFQ use 100ticks
+  // 3.2.4 Boost if current MLFQ use 100 ticks
   if(current->usedticks >= 100){
     boost();
     current->usedticks = 0;
@@ -594,19 +539,22 @@ yield(void)
   release(&ptable.lock);
 }
 
-// Move process to Stride scheduler
+// 2.3 Move process to Stride scheduler
 int
 set_cpu_share(int percent)
 {
+
 #if LOG == TRUE
   cprintf("LOG: %d %s set_cpu_share %d%\n", proc->pid, proc->name, percent);
 #endif
-  // check MLFQ will less than 20%
+
+  // 2.3.1 check MLFQ will less than 20%
   if(MLFQ->tickets - percent < 20){
     cprintf("ERROR: MLFQ should get more than 20%% of CPU\n");
     return 1;
   }
-  // check is there room for new stride proc
+
+  // 2.3.2 check is there room for new stride proc
   struct strideproc *p;
   for(p = stridetable.strideproc; p < &stridetable.strideproc[NPROC]; p++)
     if(p->sid == 0)
@@ -615,23 +563,27 @@ set_cpu_share(int percent)
   return 1;
 
 found:
-  // init new stride proc
   acquire(&ptable.lock);
+
+  // 2.3.3 init new stride proc
   p->tickets = percent;
   p->stride = ENTIRETICKETS / percent;
-  p->pass = getminpass();
+  p->pass = getminpass() - p->stride;
   p->usedticks = 0;
   p->sid = nextsid++;
   p->pptable.proc[0] = proc;
   current->pptable.proc[current->currentproc] = 0;
 
+  // 2.3.4 change MLFQ's tickets and stride
   MLFQ->tickets -= percent;
   MLFQ->stride = ENTIRETICKETS / MLFQ->tickets;
+
   release(&ptable.lock);
 
   return 0;
 }
 
+// get the smallest pass from stridetable
 int
 getminpass(void)
 {
@@ -790,6 +742,7 @@ procdump(void)
   }
 }
 
+// remove proc pointer from pptable
 int
 removeProcPtr(struct proc *p)
 {
@@ -808,5 +761,6 @@ removeProcPtr(struct proc *p)
 #if LOG == TRUE
   cprintf("LOG: success remove process pointer!!\n");
 #endif
+
   return find;
 }
