@@ -72,24 +72,6 @@ struct proc {
   int usedticks;               // ticks it used in this quantum
 };
 
-// 1.4 Process pointer table for MLFQ
-struct pptrtable {
-  struct spinlock lock;
-  struct proc *proc[NPROC];
-};
-
-// 1.3 Per-stride process state
-struct strideproc {
-  struct spinlock lock;
-  struct pptrtable pptable; // save pointer of procs in ptable
-  int tickets;
-  int stride;
-  int pass;
-  int usedticks;    // save usedticks for boosting
-  int sid;          // stride proc id
-  int currentproc;  // index of running proc in pptable
-};
-
 // Process memory is laid out contiguously, low addresses first:
 //   text
 //   original data and bss

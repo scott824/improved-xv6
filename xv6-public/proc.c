@@ -16,6 +16,24 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+// 1.4 Process pointer table for MLFQ
+struct pptrtable {
+  struct spinlock lock;
+  struct proc *proc[NPROC];
+};
+
+// 1.3 Per-stride process state
+struct strideproc {
+  struct spinlock lock;
+  struct pptrtable pptable; // save pointer of procs in ptable
+  int tickets;
+  int stride;
+  int pass;
+  int usedticks;    // save usedticks for boosting
+  int sid;          // stride proc id
+  int currentproc;  // index of running proc in pptable
+};
+
 // 1.2 Process table for stride process
 struct {
     struct spinlock lock;
