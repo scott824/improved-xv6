@@ -70,7 +70,7 @@ pinit(void)
 
   // init first stride proc (MLFQ)
   stridetable.strideproc->tickets = ENTIRETICKETS;
-  stridetable.strideproc->stride = ENTIRETICKETS / stridetable.strideproc->tickets;
+  stridetable.strideproc->stride = ENTIRETICKETS*ACCURATENUM / stridetable.strideproc->tickets;
   stridetable.strideproc->pass = 0;
   stridetable.strideproc->usedticks = 0;
   stridetable.strideproc->sid = nextsid++;
@@ -400,7 +400,7 @@ scheduler(void)
       if(i == NPROC){
         // 2.1.3 remove stride proc
         MLFQ->tickets += current->tickets;
-        MLFQ->stride = ENTIRETICKETS / MLFQ->tickets;
+        MLFQ->stride = ENTIRETICKETS*ACCURATENUM / MLFQ->tickets;
         current->tickets = 0;
         current->stride = 0;
         current->pass = 0;
@@ -564,10 +564,11 @@ set_cpu_share(int percent)
 
 #if LOG == TRUE
   cprintf("LOG: %d %s set_cpu_share %d%\n", proc->pid, proc->name, percent);
+  cprintf("LOG: MLFQ->tickets = %d, percentage = %d\n", MLFQ->tickets, MLFQ->tickets * 100 / ENTIRETICKETS);
 #endif
 
   // 2.3.1 check MLFQ will less than 20%
-  if(MLFQ->tickets - percent < 20){
+  if(MLFQ->tickets*100 / ENTIRETICKETS - percent < 20){
     cprintf("ERROR: MLFQ should get more than 20%% of CPU\n");
     return 1;
   }
@@ -584,8 +585,8 @@ found:
   acquire(&ptable.lock);
 
   // 2.3.3 init new stride proc
-  p->tickets = percent;
-  p->stride = ENTIRETICKETS / percent;
+  p->tickets = ENTIRETICKETS * percent / 100;
+  p->stride = ENTIRETICKETS*ACCURATENUM / p->tickets;
   p->pass = getminpass() - p->stride;
   p->usedticks = 0;
   p->sid = nextsid++;
@@ -593,8 +594,8 @@ found:
   current->pptable.proc[current->currentproc] = 0;
 
   // 2.3.4 change MLFQ's tickets and stride
-  MLFQ->tickets -= percent;
-  MLFQ->stride = ENTIRETICKETS / MLFQ->tickets;
+  MLFQ->tickets -= p->tickets;
+  MLFQ->stride = ENTIRETICKETS*ACCURATENUM / MLFQ->tickets;
 
   release(&ptable.lock);
 

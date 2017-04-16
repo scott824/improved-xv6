@@ -13,6 +13,7 @@
 #define FSSIZE       1000  // size of file system in blocks
 
 #define ENTIRETICKETS 100           // entire tickets for stride scheduler
+#define ACCURATENUM   10            // use this number to make accurate stride
 #define NUMLEVEL      3             // number of level
 #define MAXINT        2147483647    // max number of int
 
