@@ -51,7 +51,7 @@ enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 // ticks of quantum each level will use
 const int quantum[3]; 
 
-// Per-process state
+// 1.1.5 Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
   pde_t* pgdir;                // Page table
