@@ -6,37 +6,21 @@
 #include "stat.h"
 #include "user.h"
 
-#define NAME_CHILD_MLFQ     "test_mlfq"
-
-char *child_argv[3][3] = {
-    {NAME_CHILD_MLFQ, "0", 0},
-    {NAME_CHILD_MLFQ, "0", 0},
-    {NAME_CHILD_MLFQ, "0", 0}
-};
+void func(int input) {
+    int i = 0;
+    printf(1, "inside function argument's sp = %x\n", &input);
+    printf(1, "inside function variable's sp = %x\n", &i);
+}
 
 int
 main()
 {
-    int pid;
-    int i;
-
-    for(i = 0; i < 3; i++) {
-        pid = fork();
-        if (pid > 0) {
-            continue;
-        } else if (pid == 0) {
-            exec(child_argv[i][0], child_argv[i]);
-            printf(1, "exec failded!\n");
-            exit();
-        } else {
-            printf(1, "fork failed!\n");
-            exit();
-        }
-    }
-
-    for (i = 0; i < 3; i++) {
-        wait();
-    }
-
+    int i = 0;
+    int j = 0;
+    int k = 0;
+    printf(1, "i's sp = %x\n", &i);
+    printf(1, "j's sp = %x\n", &j);
+    printf(1, "k's sp = %x\n", &k);
+    func(10);
     exit();
 }

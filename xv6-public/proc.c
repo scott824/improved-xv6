@@ -325,6 +325,12 @@ wait(void)
       if(p->state == ZOMBIE){
 #if LOG == TRUE
         cprintf("LOG: remove ZOMBIE process %d %s\n", p->pid, p->name);
+        int i;
+        cprintf("LOG: Process LIST - [");
+        for(i = 0; i < 6; i++){
+          cprintf("%d:%s-%d, ", ptable.proc[i].pid, ptable.proc[i].name, ptable.proc[i].state);
+        }
+        cprintf("]\n");
 #endif
         // Found one.
         pid = p->pid;
@@ -386,7 +392,7 @@ scheduler(void)
       }
 
 #if LOG == TRUE
-      cprintf("LOG: found min pass stride index %d\n", minpindex);
+      //cprintf("LOG: found min pass stride index %d\n", minpindex);
 #endif
 
       // 2.1.2 change current stride proc;
@@ -408,7 +414,7 @@ scheduler(void)
         current->sid = 0;
 
 #if LOG == TRUE
-        cprintf("LOG: Remove empty stride proc %d\n", current->sid);
+        //cprintf("LOG: Remove empty stride proc %d\n", current->sid);
 #endif
 
       }else{
@@ -439,7 +445,7 @@ MLFQ_scheduler(void)
   if(p && p->usedticks >= quantum[p->level]){
 
 #if LOG == TRUE
-    cprintf("LOG: %d %s proc use all its quantum, level: %d\n", p->pid, p->name, p->level);
+    //cprintf("LOG: %d %s proc use all its quantum, level: %d\n", p->pid, p->name, p->level);
 #endif
 
     if(p->level < 2)
@@ -466,7 +472,7 @@ MLFQ_scheduler(void)
   }
 
 #if LOG == TRUE
-  cprintf("LOG: NO process to run in %d stride proc\n", current->sid);
+  //cprintf("LOG: NO process to run in %d stride proc\n", current->sid);
 #endif
 
   // 3.1.4 return if there is no proc to run
@@ -477,7 +483,8 @@ found:
   // 3.1.5 swtch
 
 #if LOG == TRUE
-  cprintf("LOG: swtch to %d %s\n", p->pid, p->name);
+  //if(p->pid == 10000)
+    cprintf("LOG: swtch to %d %s\n", p->pid, p->name);
 #endif
 
   proc = p;
@@ -665,6 +672,12 @@ sleep(void *chan, struct spinlock *lk)
 
 #if LOG == TRUE
   cprintf("LOG: %d %s process sleep, usedticks=%d\n", proc->pid, proc->name, proc->usedticks);
+  int i;
+  cprintf("LOG: Process LIST - [");
+  for(i = 0; i < 6; i++){
+    cprintf("%d:%s-%d, ", ptable.proc[i].pid, ptable.proc[i].name, ptable.proc[i].state);
+  }
+  cprintf("]\n");
 #endif
 
   sched();
@@ -783,3 +796,179 @@ removeProcPtr(struct proc *p)
 
   return find;
 }
+
+
+// thread syscalls
+int
+thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg)
+{
+  cprintf("LOG: thread_create start!\n");
+
+  struct proc *p;
+  char *sp;
+
+  acquire(&ptable.lock);
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->state == UNUSED){
+      goto found;
+    }
+
+  release(&ptable.lock);
+
+  return 0;
+
+found:
+  cprintf("LOG: thread_create - found\n");
+
+  p->state = EMBRYO;
+  p->pid = 10000;
+
+  release(&ptable.lock);
+
+  if((p->kstack = kalloc()) == 0){
+    p->state = UNUSED;
+    return 0;
+  }
+
+  sp = p->kstack + KSTACKSIZE;
+
+  // Leave room for trap frame.
+  sp -= sizeof *p->tf;
+  p->tf = (struct trapframe*)sp;
+
+  sp -= 4;
+  *(uint*)sp = (uint)trapret;
+
+  sp -= sizeof *p->context;
+  p->context = (struct context*)sp;
+  memset(p->context, 0, sizeof *p->context);
+  p->context->eip = (uint)forkret;
+
+  acquire(&current->pptable.lock);
+  // save proc pointer in stride proc pptable
+  int i;
+  for(i = 0; i < NPROC; i++)
+    if(!current->pptable.proc[i]){
+      current->pptable.proc[i] = p;
+      cprintf("LOG: save proc (%p)pointer in current pptable\n", (int)current->pptable.proc[i]);
+      break;
+    }
+  release(&current->pptable.lock);
+
+  cprintf("LOG: thread_create - end of allocproc procedure\n");
+
+// exec part
+  uint thread_sp, ustack[3+1+1];
+
+  // allocate new stack for thread
+  cprintf("LOG: thread_create - (before PGROUNDUP) proc->sz = %d\n", proc->sz);
+  proc->sz = PGROUNDUP(proc->sz);
+  cprintf("LOG: thread_create - (after PGROUNDUP) proc->sz = %d\n", proc->sz);
+  if((proc->sz = allocuvm(proc->pgdir, proc->sz, proc->sz + 2*PGSIZE)) == 0)
+    goto bad;
+  cprintf("LOG: thread_create - (after allocuvm) proc->sz = %d\n", proc->sz);
+  //clearpteu(proc->pgdir, (char*)(proc->sz - 2*PGSIZE));
+  thread_sp = proc->sz;
+
+  cprintf("LOG: thread_create - allocated new stack for thread\n");
+
+  cprintf("LOG: thread_create - (before mask) thread_sp = %d\n", thread_sp);
+  thread_sp = (thread_sp  - 4) & ~3;
+  cprintf("LOG: thread_create - (after mask) thread_sp = %d\n", thread_sp);
+  if(copyout(proc->pgdir, thread_sp, arg, 4) < 0)
+    goto bad;
+  //cprintf("LOG: thread_create - (put argument to stack) %d\n", 
+
+  cprintf("LOG: thread_create - make ustack\n");
+
+  ustack[0] = 0xffffffff;
+  ustack[1] = 1;
+  ustack[2] = thread_sp - (2)*4;
+  ustack[3] = thread_sp;
+  ustack[4] = 0;
+
+  cprintf("LOG: thread_create - copy ustack to thread stack\n");
+
+  thread_sp -= 5*4;
+  if(copyout(proc->pgdir, thread_sp, ustack, 5*4) < 0)
+    goto bad;
+
+  cprintf("LOG: thread_create - make new stack for thread\n");
+
+  p->pgdir = proc->pgdir;
+  p->sz = proc->sz;
+
+  *p->tf = *proc->tf;
+  p->tf->eip = (uint)start_routine;
+  p->tf->esp = thread_sp;
+
+  cprintf("LOG: thread_create - EIP: %x\n", p->tf->eip);
+
+  p->threadof = proc->pid;
+  //p->pid = nextpid++;
+  p->parent = proc->parent;
+
+  //int i;
+  for(i = 0; i < NOFILE; i++)
+    if(proc->ofile[i])
+      p->ofile[i] = filedup(proc->ofile[i]);
+  p->cwd = idup(proc->cwd);
+
+  safestrcpy(p->name, proc->name, sizeof(proc->name));
+
+
+  acquire(&ptable.lock);
+
+  p->state = RUNNABLE;
+
+  release(&ptable.lock);
+
+#if LOG
+  cprintf("LOG: thread_create - end\n");
+  //int i;
+  cprintf("LOG: Process LIST - [");
+  for(i = 0; i < 6; i++){
+    cprintf("%d:%s-%d, ", ptable.proc[i].pid, ptable.proc[i].name, ptable.proc[i].state);
+  }
+  cprintf("]\n");
+#endif
+
+  return 0;
+bad:
+  return -1;
+}
+
+void
+thread_exit(void *retval)
+{
+  return;
+}
+
+int
+thread_join(thread_t thread, void **retval)
+{
+  return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

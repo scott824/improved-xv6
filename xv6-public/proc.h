@@ -70,6 +70,8 @@ struct proc {
   /* Info for MLFQ */
   int level;                   // Priority Queue Level(0, 1, 2)
   int usedticks;               // ticks it used in this quantum
+
+  int threadof;
 };
 
 // Process memory is laid out contiguously, low addresses first:
