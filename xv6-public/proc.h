@@ -71,7 +71,10 @@ struct proc {
   int level;                   // Priority Queue Level(0, 1, 2)
   int usedticks;               // ticks it used in this quantum
 
-  int threadof;
+  /* for Thread */
+  struct proc *threadof;       // If non-zero, it's process PCB
+  struct proc *returnto;       // PCB which call join for this thread         
+  uint threadret;
 };
 
 // Process memory is laid out contiguously, low addresses first:

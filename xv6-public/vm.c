@@ -289,6 +289,9 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 void
 freevm(pde_t *pgdir)
 {
+#if LOG
+  cprintf("LOG: freevm - %d %s\n", proc->pid, proc->name);
+#endif
   uint i;
 
   if(pgdir == 0)

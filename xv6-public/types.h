@@ -4,4 +4,4 @@ typedef unsigned char  uchar;
 typedef uint pde_t;
 
 /* Thread */
-typedef int thread_t;
+typedef uint thread_t;

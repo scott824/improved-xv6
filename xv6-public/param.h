@@ -17,6 +17,6 @@
 #define NUMLEVEL      3             // number of level
 #define MAXINT        2147483647    // max number of int
 
-#define LOG          1  // on-off LOG
+#define LOG          0  // on-off LOG
 #define TRUE         1
 #define FALSE        0

@@ -104,6 +104,8 @@ int             pipewrite(struct pipe*, char*, int);
 //PAGEBREAK: 16
 // proc.c
 void            exit(void);
+void            cleanup_fs(struct proc *p);
+void            cleanup_child(struct proc *p);
 int             fork(void);
 int             growproc(int);
 int             kill(int);
@@ -124,8 +126,9 @@ int             removeProcPtr(struct proc *p);
 int             getminpass(void);
 
 int             thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg);
-void            thread_exit(void *retval);
+void            thread_exit(void *retval) __attribute__((noreturn));
 int             thread_join(thread_t thread, void **retval);
+int             cleanup_ustack(void);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

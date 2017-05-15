@@ -199,7 +199,12 @@ growproc(int n)
 {
   uint sz;
 
-  sz = proc->sz;
+  if(proc->threadof != 0){
+    sz = proc->threadof->sz;
+  }else{
+    sz = proc->sz;
+  }
+
   if(n > 0){
     if((sz = allocuvm(proc->pgdir, sz, sz + n)) == 0)
       return -1;
@@ -207,7 +212,13 @@ growproc(int n)
     if((sz = deallocuvm(proc->pgdir, sz, sz + n)) == 0)
       return -1;
   }
-  proc->sz = sz;
+
+  if(proc->threadof != 0){
+    proc->threadof->sz = sz;
+  }
+  if(n > 0 || proc->threadof == 0)
+    proc->sz = sz;
+
   switchuvm(proc);
   return 0;
 }
@@ -265,46 +276,71 @@ void
 exit(void)
 {
   struct proc *p;
-  int fd;
 
   if(proc == initproc)
     panic("init exiting");
+  if(proc->threadof != 0)
+    panic("thread call exit, thread should exit with thread_exit()");
 
-  // Close all open files.
-  for(fd = 0; fd < NOFILE; fd++){
-    if(proc->ofile[fd]){
-      fileclose(proc->ofile[fd]);
-      proc->ofile[fd] = 0;
-    }
-  }
-
-  begin_op();
-  iput(proc->cwd);
-  end_op();
-  proc->cwd = 0;
+  cleanup_fs(proc);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->threadof == proc)
+      cleanup_fs(p);
 
   acquire(&ptable.lock);
 
   // Parent might be sleeping in wait().
   wakeup1(proc->parent);
 
-  // Pass abandoned children to init.
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->parent == proc){
-      p->parent = initproc;
-      if(p->state == ZOMBIE)
-        wakeup1(initproc);
-    }
-  }
+  cleanup_child(proc);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->threadof == proc)
+      cleanup_child(p);
 
 #if LOG == TRUE
   cprintf("LOG: Exit from %d %s\n", proc->pid, proc->name);
 #endif
   // Jump into the scheduler, never to return.
-  proc->state = ZOMBIE;
   sched();
   panic("zombie exit");
 }
+
+// cleanup process's(thread's) child, cleanup thread
+void
+cleanup_child(struct proc *p)
+{
+  struct proc *i;
+  // Pass abandoned children to init.
+  for(i = ptable.proc; i < &ptable.proc[NPROC]; i++){
+    if(i->parent == p){
+      i->parent = initproc;
+      if(i->state == ZOMBIE)
+        wakeup1(initproc);
+    }
+  }
+  p->state = ZOMBIE;
+}
+
+// cleanup file system related works
+void
+cleanup_fs(struct proc *p)
+{
+  int fd;
+
+  // Close all open files.
+  for(fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd]){
+      fileclose(p->ofile[fd]);
+      p->ofile[fd] = 0;
+    }
+  }
+
+  begin_op();
+  iput(p->cwd);
+  end_op();
+  p->cwd = 0;
+}
+
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
@@ -346,6 +382,7 @@ wait(void)
 
         // remove all the pointer of this proc
         removeProcPtr(p);
+
         return pid;
       }
     }
@@ -797,178 +834,186 @@ removeProcPtr(struct proc *p)
   return find;
 }
 
-
-// thread syscalls
 int
 thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg)
 {
-  cprintf("LOG: thread_create start!\n");
+  struct proc *np;
 
-  struct proc *p;
-  char *sp;
+  // allocate thread's PCB
+  if((np = allocproc()) == 0){
+    cprintf("LOG: Can't alloc more PCB\n");
+    return -1;
+  }
+  //cprintf("LOG: %d thread_create - arg = %d\n", np->pid, (uint)arg);
 
-  acquire(&ptable.lock);
+  // return thread's pid
+  *thread = np->pid;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == UNUSED){
-      goto found;
-    }
-
-  release(&ptable.lock);
-
-  return 0;
-
-found:
-  cprintf("LOG: thread_create - found\n");
-
-  p->state = EMBRYO;
-  p->pid = 10000;
-
-  release(&ptable.lock);
-
-  if((p->kstack = kalloc()) == 0){
-    p->state = UNUSED;
-    return 0;
+  // thread's PCB will remember it's main process
+  // also remember where join called for this thread
+  if(proc->threadof == 0){
+    np->threadof = proc;
+    np->returnto = proc;
+  }else{
+    np->threadof = proc->threadof;
+    np->returnto = proc;
   }
 
-  sp = p->kstack + KSTACKSIZE;
+  // allocate new user stack for thread
+  if(growproc(PGSIZE) == -1){
+    cprintf("LOG: Can't grow proc\n");
+    return -1;
+  }
 
-  // Leave room for trap frame.
-  sp -= sizeof *p->tf;
-  p->tf = (struct trapframe*)sp;
-
-  sp -= 4;
-  *(uint*)sp = (uint)trapret;
-
-  sp -= sizeof *p->context;
-  p->context = (struct context*)sp;
-  memset(p->context, 0, sizeof *p->context);
-  p->context->eip = (uint)forkret;
-
-  acquire(&current->pptable.lock);
-  // save proc pointer in stride proc pptable
-  int i;
-  for(i = 0; i < NPROC; i++)
-    if(!current->pptable.proc[i]){
-      current->pptable.proc[i] = p;
-      cprintf("LOG: save proc (%p)pointer in current pptable\n", (int)current->pptable.proc[i]);
-      break;
-    }
-  release(&current->pptable.lock);
-
-  cprintf("LOG: thread_create - end of allocproc procedure\n");
-
-// exec part
-  uint thread_sp, ustack[3+1+1];
-
-  // allocate new stack for thread
-  cprintf("LOG: thread_create - (before PGROUNDUP) proc->sz = %d\n", proc->sz);
-  proc->sz = PGROUNDUP(proc->sz);
-  cprintf("LOG: thread_create - (after PGROUNDUP) proc->sz = %d\n", proc->sz);
-  if((proc->sz = allocuvm(proc->pgdir, proc->sz, proc->sz + 2*PGSIZE)) == 0)
-    goto bad;
-  cprintf("LOG: thread_create - (after allocuvm) proc->sz = %d\n", proc->sz);
-  //clearpteu(proc->pgdir, (char*)(proc->sz - 2*PGSIZE));
-  thread_sp = proc->sz;
-
-  cprintf("LOG: thread_create - allocated new stack for thread\n");
-
-  cprintf("LOG: thread_create - (before mask) thread_sp = %d\n", thread_sp);
-  thread_sp = (thread_sp  - 4) & ~3;
-  cprintf("LOG: thread_create - (after mask) thread_sp = %d\n", thread_sp);
-  if(copyout(proc->pgdir, thread_sp, arg, 4) < 0)
-    goto bad;
-  //cprintf("LOG: thread_create - (put argument to stack) %d\n", 
-
-  cprintf("LOG: thread_create - make ustack\n");
+  // fill the new user stack
+  uint sp, ustack[2];
+  sp = proc->sz;
+  //cprintf("LOG: %d proc->sz = %d\n", proc->pid, proc->sz);
 
   ustack[0] = 0xffffffff;
-  ustack[1] = 1;
-  ustack[2] = thread_sp - (2)*4;
-  ustack[3] = thread_sp;
-  ustack[4] = 0;
+  ustack[1] = (uint)arg;
+  
+  sp -= 2*4;
+  if(copyout(proc->pgdir, sp, ustack, 2*4) < 0){
+    return -1;
+  }
 
-  cprintf("LOG: thread_create - copy ustack to thread stack\n");
-
-  thread_sp -= 5*4;
-  if(copyout(proc->pgdir, thread_sp, ustack, 5*4) < 0)
-    goto bad;
-
-  cprintf("LOG: thread_create - make new stack for thread\n");
-
-  p->pgdir = proc->pgdir;
-  p->sz = proc->sz;
-
-  *p->tf = *proc->tf;
-  p->tf->eip = (uint)start_routine;
-  p->tf->esp = thread_sp;
-
-  cprintf("LOG: thread_create - EIP: %x\n", p->tf->eip);
-
-  p->threadof = proc->pid;
-  //p->pid = nextpid++;
-  p->parent = proc->parent;
-
-  //int i;
+  // share Address Space
+  np->pgdir = proc->pgdir;
+  np->sz = proc->sz;
+  np->parent = proc->parent;
+  int i;
   for(i = 0; i < NOFILE; i++)
     if(proc->ofile[i])
-      p->ofile[i] = filedup(proc->ofile[i]);
-  p->cwd = idup(proc->cwd);
+      np->ofile[i] = filedup(proc->ofile[i]);
+  np->cwd = idup(proc->cwd);
 
-  safestrcpy(p->name, proc->name, sizeof(proc->name));
+  safestrcpy(np->name, proc->name, sizeof(proc->name));
 
+  *np->tf = *proc->tf;
+  np->tf->eip = (uint)start_routine;
+  np->tf->esp = sp;
 
   acquire(&ptable.lock);
-
-  p->state = RUNNABLE;
-
+  np->state = RUNNABLE;
   release(&ptable.lock);
 
-#if LOG
-  cprintf("LOG: thread_create - end\n");
-  //int i;
-  cprintf("LOG: Process LIST - [");
-  for(i = 0; i < 6; i++){
-    cprintf("%d:%s-%d, ", ptable.proc[i].pid, ptable.proc[i].name, ptable.proc[i].state);
-  }
-  cprintf("]\n");
-#endif
+  //cprintf("LOG: %d thread_create - end\n", np->pid);
 
   return 0;
-bad:
-  return -1;
 }
 
 void
 thread_exit(void *retval)
 {
-  return;
+  //cprintf("LOG: %d thread_exit - start\n", proc->pid);
+  struct proc *p;
+  if(proc->threadof == 0)
+    panic("non-thread call thread_exit()");
+
+  cleanup_fs(proc);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->threadof == proc)
+      cleanup_fs(p);
+
+  acquire(&ptable.lock);
+
+  wakeup1(proc->returnto);
+
+  proc->threadret = (struct proc*)retval;
+
+  cleanup_child(proc);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->threadof == proc)
+      cleanup_child(p);
+
+  //cprintf("LOG: %d thread_exit - enter sched()\n", proc->pid);
+  sched();
+  panic("zombie thread exit");
 }
 
 int
 thread_join(thread_t thread, void **retval)
 {
-  return 0;
+  //cprintf("LOG: %d thread_join - start\n", thread);
+  struct proc *p;
+
+  acquire(&ptable.lock);
+
+find:
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == thread){
+      if(p->state == ZOMBIE){
+        //cprintf("LOG: %d thread_join - free ended thread\n", thread);
+        *retval = (void*)p->threadret;
+        kfree(p->kstack);
+        p->kstack = 0;
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->sz = 0;
+        p->threadof = 0;
+        p->returnto = 0;
+        p->threadret = 0;
+        p->state = UNUSED;
+        release(&ptable.lock);
+
+        removeProcPtr(p);
+        cleanup_ustack();
+
+        return 0;
+      }
+      else{
+        sleep(proc, &ptable.lock);
+        goto find;
+      }
+    }
+  }
+
+  // there is no thread
+  release(&ptable.lock);
+  return -1;
 }
 
+int
+cleanup_ustack()
+{
+  struct proc *p;
+  struct proc *mainPCB;
+  uint sz, count = 0;
 
+  if(proc->threadof != 0)
+    mainPCB = proc->threadof;
+  else
+    mainPCB = proc;
+  sz = mainPCB->sz;
+  //cprintf("LOG: %d sz = %d\n", mainPCB->pid, mainPCB->sz);
+  for(;;){
+    count = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      //cprintf("LOG: %d %s|", p->pid, p->name);
+      if(p->threadof == mainPCB){
+        //cprintf("LOG: %d %s p->threadof == mainPCB\n", p->pid, p->name);
+        count++;
+        if(p->sz == sz){
+          //cprintf("LOG: %d thread sz = %d exist\n", p->pid, p->sz);
+          goto exist;
+        }
+      }
+    }
+    //cprintf("LOG: grow down user stack %d to ", mainPCB->sz);
+    if(growproc(-PGSIZE) == -1){
+      cprintf("LOG: Can't grow down proc\n");
+      return -1;
+    }
+    //cprintf("%d\n", mainPCB->sz);
+    sz -= PGSIZE;
+    if(mainPCB->tf->esp > (sz - PGSIZE))
+      break;
+  }
+  return 1;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+exist:
+  return 0;
+}
