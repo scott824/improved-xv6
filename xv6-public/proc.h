@@ -71,10 +71,10 @@ struct proc {
   int level;                   // Priority Queue Level(0, 1, 2)
   int usedticks;               // ticks it used in this quantum
 
-  /* for Thread */
-  struct proc *threadof;       // If non-zero, it's process PCB
-  struct proc *returnto;       // PCB which call join for this thread         
-  uint threadret;
+  /* LWP 1.3 New properties for Thread */
+  struct proc *threadof;       // LWP 1.3.1 If non-zero, it's process PCB
+  struct proc *returnto;       // LWP 1.3.2 PCB which call join for this thread         
+  uint threadret;              // LWP 1.3.3 save thread's retern value
 };
 
 // Process memory is laid out contiguously, low addresses first:

@@ -216,8 +216,9 @@ growproc(int n)
   if(proc->threadof != 0){
     proc->threadof->sz = sz;
   }
-  if(n > 0 || proc->threadof == 0)
+  if(n > 0 || proc->threadof == 0){
     proc->sz = sz;
+  }
 
   switchuvm(proc);
   return 0;
@@ -377,6 +378,8 @@ wait(void)
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
+        p->usedticks = 0;
+        p->level = 0;
         p->state = UNUSED;
         release(&ptable.lock);
 
@@ -834,83 +837,108 @@ removeProcPtr(struct proc *p)
   return find;
 }
 
+// thread syscalls
+
+// LWP 1 thread_create
 int
 thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg)
 {
   struct proc *np;
 
-  // allocate thread's PCB
+  // LWP 1.4.1 allocate thread's PCB
   if((np = allocproc()) == 0){
     cprintf("LOG: Can't alloc more PCB\n");
     return -1;
   }
-  //cprintf("LOG: %d thread_create - arg = %d\n", np->pid, (uint)arg);
 
-  // return thread's pid
+  // LWP 1.4.2 return thread's pid
   *thread = np->pid;
 
+  // LWP 1.4.3
   // thread's PCB will remember it's main process
-  // also remember where join called for this thread
+  // also remember where thread_join() called for this thread
   if(proc->threadof == 0){
     np->threadof = proc;
     np->returnto = proc;
   }else{
+    // if thread_create is called in thread
     np->threadof = proc->threadof;
     np->returnto = proc;
   }
 
+  // LWP 1.4.4
   // allocate new user stack for thread
   if(growproc(PGSIZE) == -1){
     cprintf("LOG: Can't grow proc\n");
     return -1;
   }
 
+  // LWP 1.4.5
   // fill the new user stack
   uint sp, ustack[2];
   sp = proc->sz;
-  //cprintf("LOG: %d proc->sz = %d\n", proc->pid, proc->sz);
 
-  ustack[0] = 0xffffffff;
+  ustack[0] = 0xffffffff; // thread will never return in normal
   ustack[1] = (uint)arg;
   
   sp -= 2*4;
   if(copyout(proc->pgdir, sp, ustack, 2*4) < 0){
+    cprintf("LOG: Can't copy argument to user stack\n");
     return -1;
   }
 
+  // LWP 1.4.6 Initial new thread's PCB
   // share Address Space
   np->pgdir = proc->pgdir;
+
+  // each thread's sz is address of top of it's user stack
   np->sz = proc->sz;
+
   np->parent = proc->parent;
   int i;
   for(i = 0; i < NOFILE; i++)
     if(proc->ofile[i])
       np->ofile[i] = filedup(proc->ofile[i]);
   np->cwd = idup(proc->cwd);
-
   safestrcpy(np->name, proc->name, sizeof(proc->name));
 
   *np->tf = *proc->tf;
+
+  // LWP 1.4.7
+  // LWP 1.2.2 - 1,2 eip, esp for usermode
+  // set Program Counter to `start_routine` function
   np->tf->eip = (uint)start_routine;
+  // set Stack Pointer to new user stack
   np->tf->esp = sp;
 
   acquire(&ptable.lock);
+  // LWP 1.4.8
   np->state = RUNNABLE;
   release(&ptable.lock);
-
-  //cprintf("LOG: %d thread_create - end\n", np->pid);
 
   return 0;
 }
 
+// LWP 2 thread_exit
 void
 thread_exit(void *retval)
 {
-  //cprintf("LOG: %d thread_exit - start\n", proc->pid);
   struct proc *p;
-  if(proc->threadof == 0)
-    panic("non-thread call thread_exit()");
 
+  // LWP 2.1.1
+  // if call by main process
+  if(proc->threadof == 0){
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+      if(p->threadof == proc){
+        thread_join(p->pid, 0);
+      }
+    exit();
+  }
+  
+  // LWP 2.1.2
+
+  // LWP 2.1.2.1
+  // cleanup file I/O
   cleanup_fs(proc);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->threadof == proc)
@@ -918,35 +946,44 @@ thread_exit(void *retval)
 
   acquire(&ptable.lock);
 
+  // LWP 2.1.2.2
+  // wake up thread or main process which call thread_join for this thread
   wakeup1(proc->returnto);
 
-  proc->threadret = (struct proc*)retval;
+  // LWP 2.1.2.3 set return value
+  proc->threadret = (uint)retval;
 
+  // LWP 2.1.2.1 change thread's child's parent to `initproc`
   cleanup_child(proc);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->threadof == proc)
       cleanup_child(p);
 
-  //cprintf("LOG: %d thread_exit - enter sched()\n", proc->pid);
+  // LWP 2.1.2.4 thread will never return
   sched();
   panic("zombie thread exit");
 }
 
+// LWP 3 thread_join
 int
 thread_join(thread_t thread, void **retval)
 {
-  //cprintf("LOG: %d thread_join - start\n", thread);
   struct proc *p;
 
   acquire(&ptable.lock);
 
-find:
+  // LWP 3.2.1 find thread
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == thread){
+    found:
+      // LWP 3.2.2 check ZOMBIE
       if(p->state == ZOMBIE){
-        //cprintf("LOG: %d thread_join - free ended thread\n", thread);
-        *retval = (void*)p->threadret;
+        // LWP 3.2.5 return value
+        if(retval != 0)
+          *retval = (void*)p->threadret;
+        // LWP 3.2.6 free thread kstack
         kfree(p->kstack);
+        // LWP 3.2.7 initialize thread's PCB
         p->kstack = 0;
         p->pid = 0;
         p->parent = 0;
@@ -956,17 +993,23 @@ find:
         p->threadof = 0;
         p->returnto = 0;
         p->threadret = 0;
+        p->usedticks = 0;
+        p->level = 0;
         p->state = UNUSED;
         release(&ptable.lock);
 
         removeProcPtr(p);
-        cleanup_ustack();
+        // LWP 3.2.6 free user stack
+        if(cleanup_ustack() != 0)
+          return -1;
 
         return 0;
       }
       else{
+        // LWP 3.2.3 wait for thread to end
         sleep(proc, &ptable.lock);
-        goto find;
+        // LWP 3.2.4 thread call wakeup
+        goto found;
       }
     }
   }
@@ -976,43 +1019,43 @@ find:
   return -1;
 }
 
+// LWP 3.1.3
+// dealloc user stack from Address Space
 int
 cleanup_ustack()
 {
   struct proc *p;
   struct proc *mainPCB;
-  uint sz, count = 0;
+  uint sz;
 
   if(proc->threadof != 0)
     mainPCB = proc->threadof;
   else
     mainPCB = proc;
+
+  // top Address of allocated stacks
   sz = mainPCB->sz;
-  //cprintf("LOG: %d sz = %d\n", mainPCB->pid, mainPCB->sz);
+
   for(;;){
-    count = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      //cprintf("LOG: %d %s|", p->pid, p->name);
       if(p->threadof == mainPCB){
-        //cprintf("LOG: %d %s p->threadof == mainPCB\n", p->pid, p->name);
-        count++;
-        if(p->sz == sz){
-          //cprintf("LOG: %d thread sz = %d exist\n", p->pid, p->sz);
-          goto exist;
-        }
+        if(p->sz == sz)
+          goto exist; // there is thread which has `sz` top stack address
       }
     }
-    //cprintf("LOG: grow down user stack %d to ", mainPCB->sz);
+    // there is no thread which has `sz` top stack address
+
+    // dealloc user stack
     if(growproc(-PGSIZE) == -1){
       cprintf("LOG: Can't grow down proc\n");
       return -1;
     }
-    //cprintf("%d\n", mainPCB->sz);
     sz -= PGSIZE;
+
+    // should not dealloc mainPCB's user stack
     if(mainPCB->tf->esp > (sz - PGSIZE))
       break;
   }
-  return 1;
 
 exist:
   return 0;

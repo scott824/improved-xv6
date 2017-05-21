@@ -86,7 +86,7 @@ void*
 racingthreadmain(void *arg)
 {
   int tid = (int) arg;
-  printf(1, "racing thread main: tid = %d\n", arg);
+  //printf(1, "racing thread main: tid = %d\n", arg);
   int i;
   //int j;
   int tmp;
@@ -167,7 +167,7 @@ jointhreadmain(void *arg)
 {
   int val = (int)arg;
   sleep(200);
-  printf(1, "%d thread_exit...\n", arg);
+  printf(1, "thread_exit...\n");
   thread_exit((void *)(val*2));
 }
 

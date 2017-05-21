@@ -2,6 +2,11 @@
 #include "stat.h"
 #include "user.h"
 
+struct test {
+  int a;
+  int b;
+};
+
 void*
 mythread2(void *arg)
 {
@@ -13,15 +18,17 @@ mythread2(void *arg)
 void
 *mythread(void *arg)
 {
-  int *ret = (int*)arg;
-  printf(1, "***thread %d\n", *ret);
+  struct test *ret = (struct test*)arg;
+  sleep(100);
+  printf(1, "***thread %d\n", ret->a);
 
-  thread_t thread;
-  int argu = 5678;
-  void *retval;
+  int *testmalloc;
+  //testmalloc = malloc(sizeof(int));
+  //printf(1, "%d malloc address %d\n", getpid(), testmalloc);
+  //thread_t thread;
 
-  thread_create(&thread, mythread2, &argu);
-  thread_join(thread, &retval);
+  //thread_create(&thread, mythread2, &argu);
+  //thread_join(thread, &retval);
 
   thread_exit((void*)ret);
 }
@@ -29,15 +36,23 @@ void
 int
 main()
 {
-  int argu = 1234;
+  struct test t;
+  t.a = 1234;
+  t.b = 5678;
   void *retval;
-  thread_t thread;
+  thread_t thread1, thread2, thread3;
   printf(1, "test_thread\n");
-  printf(1, "thread function's address: %x\n", mythread);
-  thread_create(&thread, mythread, &argu);
-  printf(1, "thread number: %d\n", thread);
-  thread_join(thread, &retval);
-  printf(1, "this is main %d\n", *((int*)retval));
-  exit();
+  printf(1, "function pointer %d\n", mythread);
+
+  thread_create(&thread1, mythread, &t);
+  thread_create(&thread2, mythread, &t);
+  thread_create(&thread3, mythread, &t);
+  //thread_join(thread1, &retval);
+  //thread_join(thread2, &retval);
+  //thread_join(thread3, &retval);
+
+  //printf(1, "this is main %d\n", ((struct test*)retval)->a);
+
+  thread_exit(0);
 }
 
