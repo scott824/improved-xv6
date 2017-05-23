@@ -35,7 +35,7 @@ int set_cpu_share(int);
 
 /* Thread */
 int thread_create(thread_t*, void* (*)(void*), void*);
-void thread_exit(void*);
+void thread_exit(void*) __attribute__((noreturn));
 int thread_join(thread_t, void**);
 
 // ulib.c

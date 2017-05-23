@@ -41,7 +41,7 @@ main(int argc, char *argv[])
   int ret;
   int pid;
   int start = 0;
-  int end = NTEST-1; // 4
+  int end = NTEST-1;
   if (argc >= 2)
     start = atoi(argv[1]);
   if (argc >= 3)
@@ -86,7 +86,6 @@ void*
 racingthreadmain(void *arg)
 {
   int tid = (int) arg;
-  //printf(1, "racing thread main: tid = %d\n", arg);
   int i;
   //int j;
   int tmp;
@@ -115,7 +114,7 @@ racingtest(void)
   }
   for (i = 0; i < NUM_THREAD; i++){
     if (thread_join(threads[i], &retval) != 0 || (int)retval != i+1){
-      printf(1, "panic at thread_join retval = %d, i+1 = %d\n", retval, i+1);
+      printf(1, "panic at thread_join\n");
       return -1;
     }
   }
@@ -257,3 +256,4 @@ stresstest(void)
 }
 
 // ============================================================================
+

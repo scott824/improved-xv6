@@ -859,12 +859,11 @@ thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg)
   // also remember where thread_join() called for this thread
   if(proc->threadof == 0){
     np->threadof = proc;
-    np->returnto = proc;
   }else{
     // if thread_create is called in thread
     np->threadof = proc->threadof;
-    np->returnto = proc;
   }
+  np->returnto = proc;
 
   // LWP 1.4.4
   // allocate new user stack for thread
