@@ -10,6 +10,7 @@
 int
 exec(char *path, char **argv)
 {
+  cprintf("LOG: %d %s exec %s\n", proc->pid, proc->name, path);
   char *s, *last;
   int i, off;
   uint argc, sz, sp, ustack[3+MAXARG+1];
@@ -32,7 +33,7 @@ exec(char *path, char **argv)
     goto bad;
   if(elf.magic != ELF_MAGIC)
     goto bad;
-
+ 
   if((pgdir = setupkvm()) == 0)
     goto bad;
 
@@ -60,7 +61,10 @@ exec(char *path, char **argv)
 
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
-  sz = PGROUNDUP(sz);
+  proc->topofheap = sz;
+  sz = PGROUNDUP(KERNBASE - 3*PGSIZE);
+  proc->baseofstack = sz;
+  cprintf("LOG: %d %s exec allocate user stack area %d to %d\n", proc->pid, proc->name, sz, sz + 2*PGSIZE);
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
@@ -94,6 +98,8 @@ exec(char *path, char **argv)
   // Commit to the user image.
   oldpgdir = proc->pgdir;
   proc->pgdir = pgdir;
+  // exit another threads and main process
+  cleanup_all(oldpgdir);
   proc->sz = sz;
   proc->tf->eip = elf.entry;  // main
   proc->tf->esp = sp;
@@ -102,6 +108,7 @@ exec(char *path, char **argv)
   return 0;
 
  bad:
+  cprintf("LOG: %d %s goto bad in exec\n", proc->pid, proc->name);
   if(pgdir)
     freevm(pgdir);
   if(ip){

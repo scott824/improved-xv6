@@ -66,9 +66,11 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
+
 static int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
+  //cprintf("LOG: mappages start: %x, size: %d\n", va, size);
   char *a, *last;
   pte_t *pte;
 
@@ -77,8 +79,9 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
   for(;;){
     if((pte = walkpgdir(pgdir, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_P)
+    if(*pte & PTE_P){
       panic("remap");
+    }
     *pte = pa | perm | PTE_P;
     if(a == last)
       break;
@@ -234,6 +237,7 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     return 0;
   if(newsz < oldsz)
     return oldsz;
+  //cprintf("LOG: %d %s allocuvm %x to %x\n", proc->pid, proc->name, oldsz, newsz);
 
   a = PGROUNDUP(oldsz);
   for(; a < newsz; a += PGSIZE){
@@ -251,8 +255,10 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       return 0;
     }
   }
+  //cprintf("LOG: %d %s allocuvm finish\n", proc->pid, proc->name);
   return newsz;
 }
+
 
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
@@ -322,12 +328,14 @@ clearpteu(pde_t *pgdir, char *uva)
 // Given a parent process's page table, create a copy
 // of it for a child.
 pde_t*
-copyuvm(pde_t *pgdir, uint sz)
+copyuvm(pde_t *pgdir, uint sz, uint endofstack)
 {
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
   char *mem;
+
+  cprintf("\nLOG: %d %s copy uvm\n", proc->pid, proc->name);
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -344,9 +352,26 @@ copyuvm(pde_t *pgdir, uint sz)
     if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
       goto bad;
   }
+  // copy stack area
+  cprintf("  LOG: %d %s copy stack area\n", proc->pid, proc->name);
+  for(i = endofstack; i < KERNBASE - PGSIZE; i += PGSIZE){
+    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+      panic("copyuvm: pte should exist");
+    if(!(*pte & PTE_P))
+      panic("copyuvm: page not present");
+    pa = PTE_ADDR(*pte);
+    flags = PTE_FLAGS(*pte);
+    if((mem = kalloc()) == 0)
+      goto bad;
+    memmove(mem, (char*)P2V(pa), PGSIZE);
+    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
+      goto bad;
+  }
+  cprintf("LOG: %d %s end copy uvm\n", proc->pid, proc->name);
   return d;
 
 bad:
+  cprintf("LOG: %d %s fail to copy uvm\n", proc->pid, proc->name);
   freevm(d);
   return 0;
 }

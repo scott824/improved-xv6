@@ -27,11 +27,12 @@ main(void)
       exit();
     }
     if(pid == 0){
+      printf(1, "init: call exec (sh)\n");
       exec("sh", argv);
       printf(1, "init: exec sh failed\n");
       exit();
     }
     while((wpid=wait()) >= 0 && wpid != pid)
-      printf(1, "zombie!\n");
+      printf(1, "wpid: %d, pid: %d, zombie!\n", wpid, pid);
   }
 }

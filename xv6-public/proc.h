@@ -54,6 +54,8 @@ const int quantum[3];
 // 1.1.5 Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
+  uint topofheap;              // Top of heap area
+  uint baseofstack;            // Base of stack area
   pde_t* pgdir;                // Page table
   char *kstack;                // Bottom of kernel stack for this process
   enum procstate state;        // Process state
