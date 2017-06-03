@@ -26,12 +26,12 @@ struct pptrtable {
 struct strideproc {
   struct spinlock lock;
   struct pptrtable pptable; // save pointer of procs in ptable
-  int tickets;
-  int stride;
-  int pass;
-  int usedticks;    // save usedticks for boosting
-  int sid;          // stride proc id
-  int currentproc;  // index of running proc in pptable
+  uint tickets;
+  uint stride;
+  uint pass;
+  uint usedticks;    // save usedticks for boosting
+  uint sid;          // stride proc id
+  uint currentproc;  // index of running proc in pptable
 };
 
 // 1.2 Process table for stride process
@@ -202,7 +202,7 @@ growproc(int n)
   }else{
     sz = proc->topofheap;
   }
-  cprintf("LOG: %d %s sbrk start growproc topofheap = %x\n", proc->pid, proc->name, sz);
+  //cprintf("LOG: %d %s sbrk start growproc topofheap = %x\n", proc->pid, proc->name, sz);
 
   if(n > 0){
     if((sz = allocuvm(proc->pgdir, sz, sz + n)) == 0)
@@ -218,7 +218,7 @@ growproc(int n)
   if(n > 0 || proc->threadof == 0){
     proc->topofheap = sz;
   }
-  cprintf("LOG: %d %s sbrk end growproc topofheap = %x\n", proc->pid, proc->name, sz);
+  //cprintf("LOG: %d %s sbrk end growproc topofheap = %x\n", proc->pid, proc->name, sz);
 
   switchuvm(proc);
   return 0;
@@ -275,7 +275,7 @@ growstack(int isgrow)
 int
 fork(void)
 {
-  cprintf("LOG: %d %s start fork\n", proc->pid, proc->name);
+  //cprintf("LOG: %d %s start fork\n", proc->pid, proc->name);
   int i, pid;
   struct proc *np;
 
@@ -316,7 +316,7 @@ fork(void)
 
   release(&ptable.lock);
 
-  cprintf("LOG: %d %s end fork\n", proc->pid, proc->name);
+  //cprintf("LOG: %d %s end fork\n", proc->pid, proc->name);
   return pid;
 }
 
@@ -326,11 +326,12 @@ fork(void)
 void
 exit(void)
 {
-  cprintf("LOG: %d %s enter exit\n", proc->pid, proc->name);
+  //cprintf("LOG: %d %s enter exit\n", proc->pid, proc->name);
   if(proc == initproc)
     panic("init exiting");
   cleanup_all(proc->pgdir);
   // Jump into the scheduler, never to return.
+  //cprintf("LOG: exit before enter sched(), sid: %d, pass: %d\n", current->sid, current->pass);
   sched();
   panic("zombie exit");
 }
@@ -433,21 +434,21 @@ wait(void)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    cprintf("LOG: %d start wait by wake up\n", proc->pid);
+    //cprintf("LOG: %d start wait by wake up\n", proc->pid);
     // clear process
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->parent != proc && p->threadof != 0)
+      if(p->parent != proc || p->threadof != 0)
         continue;
       havekids = 1;
       if(p->state == ZOMBIE){
-        cprintf("clear %d\n", p->pid);
+        //cprintf("clear %d\n", p->pid);
         // Found one.
         // clear threads
         for(i = ptable.proc; i < &ptable.proc[NPROC]; i++){
           if(i->pgdir == p->pgdir && i->threadof != 0){
             if(i->state != ZOMBIE)
               panic("threads should be ZOMBIE if process exit");
-            cprintf("clear %d, threadof: %d\n", i->pid, i->threadof->pid);
+            //cprintf("clear %d, threadof: %d\n", i->pid, i->threadof->pid);
             freeThreadPCB(i);
             removeProcPtr(i);
           }
@@ -458,13 +459,14 @@ wait(void)
 
         release(&ptable.lock);
 
-        cprintf("LOG: %d %s after clean in wait\n", proc->pid, proc->name);
+        
+        /*
         int j;
         cprintf("LOG: Process LIST - [");
         for(j = 0; j < 30; j++){
           cprintf("%d:%s-s%d-p%d-t%d, ", ptable.proc[j].pid, ptable.proc[j].name, ptable.proc[j].state, ptable.proc[j].parent->pid, ptable.proc[j].threadof->pid);
         }
-        cprintf("]\n");
+        cprintf("]\n");*/
 
         // remove all the pointer of this proc
         removeProcPtr(p);
@@ -720,8 +722,29 @@ found:
   p->pass = getminpass() - p->stride;
   p->usedticks = 0;
   p->sid = nextsid++;
-  p->pptable.proc[0] = proc;
-  current->pptable.proc[current->currentproc] = 0;
+  struct proc *i;
+  int count = 0;
+  for(i = ptable.proc; i < &ptable.proc[NPROC]; i++){
+    if(i->pgdir == proc->pgdir){
+      removeProcPtr(i);
+      p->pptable.proc[count++] = i;
+    }
+  }
+  /*struct strideproc *sp;
+  int j, find = 0;
+
+  acquire(&stridetable.lock);
+  cprintf("LOG: %d %s set_cpu_share %d,sid: %d stride: %d pass: %d\n", proc->pid, proc->name, percent, p->sid, p->stride, p->pass);
+  for(sp = stridetable.strideproc; sp < &stridetable.strideproc[NPROC]; sp++){
+    for(j = 0; j < NPROC; j++)
+      if(sp->pptable.proc[j] != 0){
+        cprintf("sid: %d, pid: %d %s, threadof: %d, state: %d\n", sp->sid, sp->pptable.proc[j]->pid, sp->pptable.proc[j]->name, sp->pptable.proc[j]->threadof->pid, sp->pptable.proc[j]->state);
+      }
+  }
+  release(&stridetable.lock);*/
+
+  //p->pptable.proc[0] = proc;
+  //current->pptable.proc[current->currentproc] = 0;
 
   // 2.3.4 change MLFQ's tickets and stride
   MLFQ->tickets -= p->tickets;

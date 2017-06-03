@@ -335,7 +335,7 @@ copyuvm(pde_t *pgdir, uint sz, uint endofstack)
   uint pa, i, flags;
   char *mem;
 
-  cprintf("\nLOG: %d %s copy uvm\n", proc->pid, proc->name);
+  //cprintf("\nLOG: %d %s copy uvm\n", proc->pid, proc->name);
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -353,7 +353,7 @@ copyuvm(pde_t *pgdir, uint sz, uint endofstack)
       goto bad;
   }
   // copy stack area
-  cprintf("  LOG: %d %s copy stack area\n", proc->pid, proc->name);
+  //cprintf("  LOG: %d %s copy stack area\n", proc->pid, proc->name);
   for(i = endofstack; i < KERNBASE - PGSIZE; i += PGSIZE){
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
@@ -367,7 +367,7 @@ copyuvm(pde_t *pgdir, uint sz, uint endofstack)
     if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
       goto bad;
   }
-  cprintf("LOG: %d %s end copy uvm\n", proc->pid, proc->name);
+  //cprintf("LOG: %d %s end copy uvm\n", proc->pid, proc->name);
   return d;
 
 bad:

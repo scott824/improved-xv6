@@ -438,8 +438,8 @@ sbrkthreadmain(void *arg)
   char *oldbrk;
   char *end;
   char *c;
-  oldbrk = sbrk(1000);
-  end = oldbrk + 1000;
+  oldbrk = sbrk(10000);
+  end = oldbrk + 10000;
   for (c = oldbrk; c < end; c++){
     *c = tid+1;
   }

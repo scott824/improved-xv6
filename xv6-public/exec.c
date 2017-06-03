@@ -10,7 +10,7 @@
 int
 exec(char *path, char **argv)
 {
-  cprintf("LOG: %d %s exec %s\n", proc->pid, proc->name, path);
+  //cprintf("LOG: %d %s exec %s\n", proc->pid, proc->name, path);
   char *s, *last;
   int i, off;
   uint argc, sz, sp, ustack[3+MAXARG+1];
@@ -64,7 +64,7 @@ exec(char *path, char **argv)
   proc->topofheap = sz;
   sz = PGROUNDUP(KERNBASE - 3*PGSIZE);
   proc->baseofstack = sz;
-  cprintf("LOG: %d %s exec allocate user stack area %d to %d\n", proc->pid, proc->name, sz, sz + 2*PGSIZE);
+  //cprintf("LOG: %d %s exec allocate user stack area %d to %d\n", proc->pid, proc->name, sz, sz + 2*PGSIZE);
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));

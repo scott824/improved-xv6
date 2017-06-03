@@ -16,7 +16,7 @@ sys_fork(void)
 int
 sys_exit(void)
 {
-  cprintf("LOG: %d %s sys_exit\n", proc->pid, proc->name);
+  //cprintf("LOG: %d %s sys_exit\n", proc->pid, proc->name);
   exit();
   return 0;  // not reached
 }
@@ -55,7 +55,7 @@ sys_sbrk(void)
     addr = proc->topofheap;
   else
     addr = proc->threadof->topofheap;
-  cprintf("%d %s call sbrk: start at %x\n", proc->pid, proc->name, addr);
+  //cprintf("%d %s call sbrk: start at %x\n", proc->pid, proc->name, addr);
   if(growproc(n) < 0)
     return -1;
   return addr;
