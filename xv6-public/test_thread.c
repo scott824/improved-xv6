@@ -42,7 +42,7 @@ main()
   t.a = 1234;
   t.b = 5678;
   void *retval;
-  thread_t thread1, thread2, thread3;
+  thread_t thread1;//, thread2, thread3;
   printf(1, "test_thread\n");
   printf(1, "function pointer %d\n", mythread);
 

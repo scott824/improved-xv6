@@ -192,6 +192,7 @@ userinit(void)
 
 // Grow current process's memory by n bytes.
 // Return 0 on success, -1 on failure.
+// LWP2 - 1.4.1.2 growproc
 int
 growproc(int n)
 {
@@ -202,7 +203,6 @@ growproc(int n)
   }else{
     sz = proc->topofheap;
   }
-  //cprintf("LOG: %d %s sbrk start growproc topofheap = %x\n", proc->pid, proc->name, sz);
 
   if(n > 0){
     if((sz = allocuvm(proc->pgdir, sz, sz + n)) == 0)
@@ -218,12 +218,12 @@ growproc(int n)
   if(n > 0 || proc->threadof == 0){
     proc->topofheap = sz;
   }
-  //cprintf("LOG: %d %s sbrk end growproc topofheap = %x\n", proc->pid, proc->name, sz);
 
   switchuvm(proc);
   return 0;
 }
 
+// allocate/deallocate new stack
 int
 growstack(int isgrow)
 {
@@ -245,11 +245,11 @@ growstack(int isgrow)
       return -1;
     }
 
-    //cprintf("LOG: %d %s start allocustack: baseofstack = %x\n", proc->pid, proc->name, baseofstack);
-
     new_baseofstack = baseofstack - 2*PGSIZE;
+
     if((allocuvm(proc->pgdir, baseofstack - 2*PGSIZE, baseofstack)) == 0)
       return -1;
+
     clearpteu(proc->pgdir, (char*)new_baseofstack);
   }else{
     new_baseofstack = baseofstack + 2*PGSIZE;
@@ -262,7 +262,6 @@ growstack(int isgrow)
   }else{
     proc->baseofstack = new_baseofstack;
   }
-  //cprintf("LOG: %d %s baseofstack = %x\n", proc->pid, proc->name, new_baseofstack);
 
   switchuvm(proc);
   return baseofstack;
@@ -275,7 +274,6 @@ growstack(int isgrow)
 int
 fork(void)
 {
-  //cprintf("LOG: %d %s start fork\n", proc->pid, proc->name);
   int i, pid;
   struct proc *np;
 
@@ -284,8 +282,8 @@ fork(void)
     return -1;
   }
 
-  // Copy process state from p.
-  // TODO: should also copy stack area
+  // Copy address space
+  // LWP2 - 1.2.1.1 copy two distinguished area.
   if((np->pgdir = copyuvm(proc->pgdir, proc->topofheap, proc->baseofstack)) == 0){
     kfree(np->kstack);
     np->kstack = 0;
@@ -293,6 +291,7 @@ fork(void)
     return -1;
   }
   np->sz = proc->sz;
+  // LWP2 - 1.2.1.2 copy new properties for new address space design.
   np->topofheap = proc->topofheap;
   np->baseofstack = proc->baseofstack;
   np->parent = proc;
@@ -316,7 +315,6 @@ fork(void)
 
   release(&ptable.lock);
 
-  //cprintf("LOG: %d %s end fork\n", proc->pid, proc->name);
   return pid;
 }
 
@@ -326,33 +324,24 @@ fork(void)
 void
 exit(void)
 {
-  //cprintf("LOG: %d %s enter exit\n", proc->pid, proc->name);
   if(proc == initproc)
     panic("init exiting");
+
+  // LWP2 - 1.1.1 work flow except entering scheduler.
   cleanup_all(proc->pgdir);
-  // Jump into the scheduler, never to return.
-  //cprintf("LOG: exit before enter sched(), sid: %d, pass: %d\n", current->sid, current->pass);
+
+  // LWP2 - 1.1.1.4 Jump into the scheduler, never to return.
   sched();
   panic("zombie exit");
 }
 
+// cleanup all before terminated(`wait` also free memory related things).
 void
 cleanup_all(pde_t *pgdir)
 {
-  /*
-  acquire(&ptable.lock);
-  cprintf("LOG: %d %s cleanup_all\n", proc->pid, proc->name);
-  int i;
-  cprintf("LOG: Process LIST - [");
-  for(i = 0; i < 30; i++){
-    cprintf("%d:%s-s%d-p%d-t%d, ", ptable.proc[i].pid, ptable.proc[i].name, ptable.proc[i].state, ptable.proc[i].parent->pid, ptable.proc[i].threadof->pid);
-  }
-  cprintf("]\n");
-  release(&ptable.lock);*/
-
   struct proc *p;
 
-  //cleanup_fs(proc);
+  // LWP2 - 1.1.1.1 close all the fds which LWPs used.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->pgdir == pgdir)
       cleanup_fs(p);
@@ -360,23 +349,15 @@ cleanup_all(pde_t *pgdir)
   acquire(&ptable.lock);
 
   // Parent might be sleeping in wait().
-  if(pgdir == proc->pgdir)
+  if(pgdir == proc->pgdir) // check is it called by exec
     wakeup1(proc->parent);
 
-  //cleanup_child(proc);
+  // LWP2 - 1.1.1.2~3 clean up LWPs childs and make LWPs ZOMBIE.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     if(p->pgdir == pgdir)
       cleanup_child(p);
 
-#if LOG
-  cprintf("LOG: Exit from %d %s\n", proc->pid, proc->name);
-  cprintf("LOG: Process LIST - [");
-  for(i = 0; i < 30; i++){
-    cprintf("%d:%s-s%d-p%d-t%d, ", ptable.proc[i].pid, ptable.proc[i].name, ptable.proc[i].state, ptable.proc[i].parent->pid, ptable.proc[i].threadof->pid);
-  }
-  cprintf("]\n");
-#endif
-
+  // use for exec.
   if(pgdir != proc->pgdir){
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
       if(p->pgdir == pgdir)
@@ -398,6 +379,7 @@ cleanup_child(struct proc *p)
         wakeup1(initproc);
     }
   }
+  // make thread ZOMBIE
   p->state = ZOMBIE;
 }
 
@@ -424,6 +406,7 @@ cleanup_fs(struct proc *p)
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
+// LWP2 - 1.1.1.5 parent's wait
 int
 wait(void)
 {
@@ -434,42 +417,32 @@ wait(void)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    //cprintf("LOG: %d start wait by wake up\n", proc->pid);
+
     // clear process
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->parent != proc || p->threadof != 0)
         continue;
       havekids = 1;
       if(p->state == ZOMBIE){
-        //cprintf("clear %d\n", p->pid);
-        // Found one.
-        // clear threads
+        // LWP2 - Exit 1.5.1 Found one.
+        // LWP2 - Exit 1.5.2 clear threads
         for(i = ptable.proc; i < &ptable.proc[NPROC]; i++){
           if(i->pgdir == p->pgdir && i->threadof != 0){
             if(i->state != ZOMBIE)
               panic("threads should be ZOMBIE if process exit");
-            //cprintf("clear %d, threadof: %d\n", i->pid, i->threadof->pid);
             freeThreadPCB(i);
             removeProcPtr(i);
           }
         }
         pid = p->pid;
+        // LWP2 - Exit 1.5.3 clear main thread
         freevm(p->pgdir);
         freeThreadPCB(p);
 
-        release(&ptable.lock);
-
-        
-        /*
-        int j;
-        cprintf("LOG: Process LIST - [");
-        for(j = 0; j < 30; j++){
-          cprintf("%d:%s-s%d-p%d-t%d, ", ptable.proc[j].pid, ptable.proc[j].name, ptable.proc[j].state, ptable.proc[j].parent->pid, ptable.proc[j].threadof->pid);
-        }
-        cprintf("]\n");*/
-
         // remove all the pointer of this proc
         removeProcPtr(p);
+
+        release(&ptable.lock);
 
         return pid;
       }
@@ -722,6 +695,8 @@ found:
   p->pass = getminpass() - p->stride;
   p->usedticks = 0;
   p->sid = nextsid++;
+
+  // LWP2 - 2 Interactio with threaded system
   struct proc *i;
   int count = 0;
   for(i = ptable.proc; i < &ptable.proc[NPROC]; i++){
@@ -730,21 +705,6 @@ found:
       p->pptable.proc[count++] = i;
     }
   }
-  /*struct strideproc *sp;
-  int j, find = 0;
-
-  acquire(&stridetable.lock);
-  cprintf("LOG: %d %s set_cpu_share %d,sid: %d stride: %d pass: %d\n", proc->pid, proc->name, percent, p->sid, p->stride, p->pass);
-  for(sp = stridetable.strideproc; sp < &stridetable.strideproc[NPROC]; sp++){
-    for(j = 0; j < NPROC; j++)
-      if(sp->pptable.proc[j] != 0){
-        cprintf("sid: %d, pid: %d %s, threadof: %d, state: %d\n", sp->sid, sp->pptable.proc[j]->pid, sp->pptable.proc[j]->name, sp->pptable.proc[j]->threadof->pid, sp->pptable.proc[j]->state);
-      }
-  }
-  release(&stridetable.lock);*/
-
-  //p->pptable.proc[0] = proc;
-  //current->pptable.proc[current->currentproc] = 0;
 
   // 2.3.4 change MLFQ's tickets and stride
   MLFQ->tickets -= p->tickets;
@@ -961,26 +921,18 @@ thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg)
   }
   np->returnto = proc;
 
+  uint sp, ustack[2];
+
   // LWP 1.4.4
   // allocate new user stack for thread
-  /*
-  if(growproc(PGSIZE) == -1){
-    cprintf("LOG: Can't grow proc\n");
-    return -1;
-  }
-  */
-
-  // LWP 1.4.5
-  // fill the new user stack
-  uint sp, ustack[2];
-  //cprintf("LOG: %d %s thread_create growstack start\n", proc->pid, proc->name);
   sp = growstack(TRUE);
-  //cprintf("LOG: %d %s thread_create growstack %x to %x\n", proc->pid, proc->name, sp, proc->baseofstack);
   if(sp == -1){
     cprintf("LOG: can't grow user stack\n");
     return -1;
   }
 
+  // LWP 1.4.5
+  // fill the new user stack
   ustack[0] = 0xffffffff; // thread will never return in normal
   ustack[1] = (uint)arg;
   
@@ -1020,9 +972,8 @@ thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg)
   acquire(&ptable.lock);
   // LWP 1.4.8
   np->state = RUNNABLE;
-  release(&ptable.lock);
 
-  //cprintf("LOG: %d %s create thread %d %s\n\n", proc->pid, proc->name, np->pid, np->name);
+  release(&ptable.lock);
   return 0;
 }
 
@@ -1031,8 +982,6 @@ void
 thread_exit(void *retval)
 {
   struct proc *p;
-
-  //cprintf("LOG: %d %s thread_exit\n", proc->pid, proc->name);
 
   // LWP 2.1.1
   // if call by main process
@@ -1104,7 +1053,6 @@ thread_join(thread_t thread, void **retval)
       }
       else{
         // LWP 3.2.3 wait for thread to end
-        //cprintf("LOG: %d %s thread_join: wait for %d %s\n", proc->pid, proc->name, p->pid, p->name);
         sleep(proc, &ptable.lock);
         // LWP 3.2.4 thread call wakeup
         goto found;
@@ -1117,6 +1065,7 @@ thread_join(thread_t thread, void **retval)
   return -1;
 }
 
+// cleanup resources except pgdir.
 void
 freeThreadPCB(struct proc *p)
 {
@@ -1145,7 +1094,6 @@ freeThreadPCB(struct proc *p)
 int
 cleanup_ustack()
 {
-  //cprintf("LOG: %d %s cleanup_ustack()\n", proc->pid, proc->name);
   struct proc *p;
   struct proc *mainPCB;
   uint baseofstack;
@@ -1168,7 +1116,6 @@ cleanup_ustack()
     // there is no thread which has `sz` top stack address
 
     // dealloc user stack
-    //cprintf("LOG: %d %s dealloc ustack of %x\n", proc->pid, proc->name, baseofstack);
     if(growstack(FALSE) == -1){
       cprintf("LOG: Can't dealloc stack\n");
       return -1;

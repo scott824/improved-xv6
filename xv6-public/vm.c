@@ -70,7 +70,6 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 static int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
-  //cprintf("LOG: mappages start: %x, size: %d\n", va, size);
   char *a, *last;
   pte_t *pte;
 
@@ -237,7 +236,6 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     return 0;
   if(newsz < oldsz)
     return oldsz;
-  //cprintf("LOG: %d %s allocuvm %x to %x\n", proc->pid, proc->name, oldsz, newsz);
 
   a = PGROUNDUP(oldsz);
   for(; a < newsz; a += PGSIZE){
@@ -255,7 +253,6 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       return 0;
     }
   }
-  //cprintf("LOG: %d %s allocuvm finish\n", proc->pid, proc->name);
   return newsz;
 }
 
@@ -327,6 +324,7 @@ clearpteu(pde_t *pgdir, char *uva)
 
 // Given a parent process's page table, create a copy
 // of it for a child.
+// LWP2 - 1.2.2.1 copy two distinguished area in address space
 pde_t*
 copyuvm(pde_t *pgdir, uint sz, uint endofstack)
 {
@@ -335,10 +333,9 @@ copyuvm(pde_t *pgdir, uint sz, uint endofstack)
   uint pa, i, flags;
   char *mem;
 
-  //cprintf("\nLOG: %d %s copy uvm\n", proc->pid, proc->name);
-
   if((d = setupkvm()) == 0)
     return 0;
+  // copy bottom to topofstack
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
@@ -352,8 +349,8 @@ copyuvm(pde_t *pgdir, uint sz, uint endofstack)
     if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
       goto bad;
   }
+
   // copy stack area
-  //cprintf("  LOG: %d %s copy stack area\n", proc->pid, proc->name);
   for(i = endofstack; i < KERNBASE - PGSIZE; i += PGSIZE){
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
       panic("copyuvm: pte should exist");
@@ -367,7 +364,6 @@ copyuvm(pde_t *pgdir, uint sz, uint endofstack)
     if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0)
       goto bad;
   }
-  //cprintf("LOG: %d %s end copy uvm\n", proc->pid, proc->name);
   return d;
 
 bad:

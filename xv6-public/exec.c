@@ -10,7 +10,6 @@
 int
 exec(char *path, char **argv)
 {
-  //cprintf("LOG: %d %s exec %s\n", proc->pid, proc->name, path);
   char *s, *last;
   int i, off;
   uint argc, sz, sp, ustack[3+MAXARG+1];
@@ -59,12 +58,10 @@ exec(char *path, char **argv)
   end_op();
   ip = 0;
 
-  // Allocate two pages at the next page boundary.
-  // Make the first inaccessible.  Use the second as the user stack.
+  // LWP2 - 1.3.2.1 allocate stack area.
   proc->topofheap = sz;
   sz = PGROUNDUP(KERNBASE - 3*PGSIZE);
   proc->baseofstack = sz;
-  //cprintf("LOG: %d %s exec allocate user stack area %d to %d\n", proc->pid, proc->name, sz, sz + 2*PGSIZE);
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
@@ -98,7 +95,7 @@ exec(char *path, char **argv)
   // Commit to the user image.
   oldpgdir = proc->pgdir;
   proc->pgdir = pgdir;
-  // exit another threads and main process
+  // LWP2 - 1.3.2.2 terminate another threads and main process
   cleanup_all(oldpgdir);
   proc->sz = sz;
   proc->tf->eip = elf.entry;  // main

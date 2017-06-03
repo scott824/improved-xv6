@@ -130,6 +130,7 @@ int             thread_create(thread_t *thread, void *(*start_routine)(void*), v
 void            thread_exit(void *retval) __attribute__((noreturn));
 int             thread_join(thread_t thread, void **retval);
 int             cleanup_ustack(void);
+void            freeThreadPCB(struct proc *p);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
