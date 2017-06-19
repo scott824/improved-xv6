@@ -661,9 +661,7 @@ stridetest1(void)
     }
   }
   flag = 1;
-  printf(1, "%d start sleep\n", pid);
   sleep(500);
-  printf(1, "%d finish sleep\n", pid);
   flag = 0;
   for (i = 0; i < NUM_THREAD; i++){
     if (thread_join(threads[i], &retval) != 0){
