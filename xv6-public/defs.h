@@ -104,6 +104,9 @@ int             pipewrite(struct pipe*, char*, int);
 //PAGEBREAK: 16
 // proc.c
 void            exit(void);
+void            cleanup_all(pde_t*);
+void            cleanup_fs(struct proc *p);
+void            cleanup_child(struct proc *p);
 int             fork(void);
 int             growproc(int);
 int             kill(int);
@@ -122,6 +125,12 @@ void            boost(void);
 int             set_cpu_share(int);
 int             removeProcPtr(struct proc *p);
 int             getminpass(void);
+
+int             thread_create(thread_t *thread, void *(*start_routine)(void*), void *arg);
+void            thread_exit(void *retval) __attribute__((noreturn));
+int             thread_join(thread_t thread, void **retval);
+int             cleanup_ustack(void);
+void            freeThreadPCB(struct proc *p);
 
 // swtch.S
 void            swtch(struct context**, struct context*);
@@ -182,7 +191,7 @@ int             deallocuvm(pde_t*, uint, uint);
 void            freevm(pde_t*);
 void            inituvm(pde_t*, char*, uint);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
-pde_t*          copyuvm(pde_t*, uint);
+pde_t*          copyuvm(pde_t*, uint, uint);
 void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);

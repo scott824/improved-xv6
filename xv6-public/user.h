@@ -33,6 +33,11 @@ int getlev(void);
 /* Stride */
 int set_cpu_share(int);
 
+/* Thread */
+int thread_create(thread_t*, void* (*)(void*), void*);
+void thread_exit(void*) __attribute__((noreturn));
+int thread_join(thread_t, void**);
+
 // ulib.c
 int stat(char*, struct stat*);
 char* strcpy(char*, char*);

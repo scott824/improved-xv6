@@ -50,7 +50,11 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = proc->sz;
+  // LWP2 - 1.4.1.1 return topofheap.
+  if(proc->threadof == 0)
+    addr = proc->topofheap;
+  else
+    addr = proc->threadof->topofheap;
   if(growproc(n) < 0)
     return -1;
   return addr;
@@ -114,3 +118,44 @@ sys_set_cpu_share(void)
     return -1;
   return set_cpu_share(percent);
 }
+
+// wrapper function for thread_create system call
+int
+sys_thread_create(void)
+{
+  thread_t *thread;
+  void *(*start_routine)(void*);
+  uint arg;
+  if(argint(0, (int*)&thread) < 0)
+    return -1;
+  if(argint(1, (int*)&start_routine) < 0)
+    return -1;
+  if(argint(2, (int*)&arg) < 0)
+    return -1;
+  return thread_create(thread, start_routine, (void*)arg);
+}
+
+// wrapper function for thread_exit system call
+int
+sys_thread_exit(void)
+{
+  void *retval;
+  if(argint(0, (int*)&retval) < 0)
+    return -1;
+  thread_exit(retval);
+  return 0;
+}
+
+// wrapper function for thread_join system call
+int
+sys_thread_join(void)
+{
+  thread_t thread;
+  void **retval;
+  if(argint(0, (int*)&thread) < 0)
+    return -1;
+  if(argint(1, (int*)&retval) < 0)
+    return -1;
+  return thread_join(thread, retval);
+}
+

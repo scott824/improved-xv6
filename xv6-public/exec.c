@@ -32,7 +32,7 @@ exec(char *path, char **argv)
     goto bad;
   if(elf.magic != ELF_MAGIC)
     goto bad;
-
+ 
   if((pgdir = setupkvm()) == 0)
     goto bad;
 
@@ -58,9 +58,10 @@ exec(char *path, char **argv)
   end_op();
   ip = 0;
 
-  // Allocate two pages at the next page boundary.
-  // Make the first inaccessible.  Use the second as the user stack.
-  sz = PGROUNDUP(sz);
+  // LWP2 - 1.3.2.1 allocate stack area.
+  proc->topofheap = sz;
+  sz = PGROUNDUP(KERNBASE - 3*PGSIZE);
+  proc->baseofstack = sz;
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
@@ -94,6 +95,8 @@ exec(char *path, char **argv)
   // Commit to the user image.
   oldpgdir = proc->pgdir;
   proc->pgdir = pgdir;
+  // LWP2 - 1.3.2.2 terminate another threads and main process
+  cleanup_all(oldpgdir);
   proc->sz = sz;
   proc->tf->eip = elf.entry;  // main
   proc->tf->esp = sp;
@@ -102,6 +105,7 @@ exec(char *path, char **argv)
   return 0;
 
  bad:
+  cprintf("LOG: %d %s goto bad in exec\n", proc->pid, proc->name);
   if(pgdir)
     freevm(pgdir);
   if(ip){
